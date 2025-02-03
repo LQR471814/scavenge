@@ -63,25 +63,28 @@ type Downloader struct {
 	fails     chan FailedRequest
 }
 
-// DownloaderMiddleware runs before a request or a response
+// DownloaderHandlers runs before a request or a response
 type DownloaderHandlers struct {
 	HandleRequest  func(request *Request) error
 	HandleResponse func(response *Response) error
 }
-type DownloaderMiddleware func(downloader Downloader, next DownloaderMiddleware) DownloaderHandlers
+
+// DownloaderMiddleware creates a [DownloaderHandlers]
+type DownloaderMiddleware func(downloader Downloader, next DownloaderHandlers) DownloaderHandlers
 
 type downloaderConfig struct {
 	middleware []DownloaderMiddleware
 }
+type downloaderOption func(cfg *downloaderConfig)
 
-func WithDownloaderMiddleware(middleware ...DownloaderMiddleware) func(cfg *downloaderConfig) {
+func WithDownloaderMiddleware(middleware ...DownloaderMiddleware) downloaderOption {
 	return func(cfg *downloaderConfig) {
 		cfg.middleware = middleware
 	}
 }
 
 // NewDownloader creates a [Downloader].
-func NewDownloader(client HttpClient, configurators ...func(cfg *downloaderConfig)) Downloader {
+func NewDownloader(client HttpClient, configurators ...downloaderOption) Downloader {
 	downloader := Downloader{
 		client:    client,
 		responses: make(chan *Response),
