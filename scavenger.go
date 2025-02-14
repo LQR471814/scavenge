@@ -14,7 +14,7 @@ import (
 // the unstructured page.
 //
 // Note: HandleResponse should be safe to be called concurrently, if it is too hard to make it so,
-// make sure that any scavenger that uses this spider has the option [WithDownloadWorkerCount]
+// make sure that any scavenger that uses this spider has the option WithDownloadWorkerCount
 // set to 1.
 type Spider interface {
 	StartingRequests() []*downloader.Request
@@ -88,7 +88,7 @@ func WithOnItemProcessorFail(callback func(i item.Item, err error)) option {
 	}
 }
 
-// NewScavenger creates a new [Scavenger].
+// NewScavenger creates a new Scavenger.
 func NewScavenger(
 	dl downloader.Downloader,
 	items item.Processor,

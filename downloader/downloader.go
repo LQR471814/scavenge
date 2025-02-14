@@ -7,9 +7,12 @@ import (
 
 // Middleware runs before a request or a response, if either [HandleRequest] or [HandleResponse]
 // return an error, the request will be aborted.
+//
+// if HandleRequest returns a non-nil Response, it will be used as the response for the request
+// and the rest of the request middlewares will be skipped.
 type Middleware interface {
-	HandleRequest(ctx context.Context, dl Downloader, req *Request) (*Request, error)
-	HandleResponse(ctx context.Context, dl Downloader, res *Response) (*Response, error)
+	HandleRequest(ctx context.Context, dl Downloader, req *Request) (*Response, error)
+	HandleResponse(ctx context.Context, dl Downloader, res *Response) error
 }
 
 type config struct {
@@ -29,7 +32,7 @@ type Downloader struct {
 	cfg    config
 }
 
-// NewDownloader creates a [Downloader].
+// NewDownloader creates a Downloader.
 func NewDownloader(client Client, options ...option) Downloader {
 	cfg := config{}
 	for _, option := range options {
@@ -43,28 +46,34 @@ func NewDownloader(client Client, options ...option) Downloader {
 	return downloader
 }
 
-// Client returns the [Client] the downloader uses.
+// Client returns the Client the downloader uses.
 func (d Downloader) Client() Client {
 	return d.client
 }
 
 // Queue queues a request for downloading.
 func (d Downloader) Download(ctx context.Context, req *Request) (*Response, error) {
+	var res *Response
 	var err error
 	for _, mid := range d.cfg.middleware {
-		req, err = mid.HandleRequest(ctx, d, req)
+		res, err = mid.HandleRequest(ctx, d, req)
 		if err != nil {
 			return nil, fmt.Errorf("req middleware: %w", err)
 		}
+		if res != nil {
+			break
+		}
 	}
 
-	res, err := d.client.Do(ctx, req)
-	if err != nil {
-		return nil, fmt.Errorf("http: %w", err)
+	if res == nil {
+		res, err = d.client.Do(ctx, req)
+		if err != nil {
+			return nil, fmt.Errorf("http: %w", err)
+		}
 	}
 
 	for _, mid := range d.cfg.middleware {
-		res, err = mid.HandleResponse(ctx, d, res)
+		err = mid.HandleResponse(ctx, d, res)
 		if err != nil {
 			return nil, fmt.Errorf("resp middleware: %w", err)
 		}

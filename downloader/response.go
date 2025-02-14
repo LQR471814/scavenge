@@ -3,6 +3,7 @@ package downloader
 import (
 	"bytes"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/url"
 
@@ -15,6 +16,12 @@ type Response struct {
 	url     *url.URL
 	headers http.Header
 	body    []byte
+
+	directBody io.Reader
+}
+
+func NewResponse() {
+
 }
 
 // Request returns the request associated with this response.
@@ -37,17 +44,28 @@ func (r *Response) ContentType() string {
 	return r.headers.Get("Content-Type")
 }
 
+// DirectBody returns the underlying [io.Reader] for direct usage.
+//
+// Note that this will only be non-nil when the DirectResponse field on the corresponding
+// request is set to true.
+//
+// Middleware should not read from this field, as it is not certain that the reader
+// can be read from more than once.
+func (r *Response) DirectBody() io.Reader {
+	return r.directBody
+}
+
 // RawBody returns the raw body contents.
 func (r *Response) RawBody() []byte {
 	return r.body
 }
 
-// JsonBody attempts to interpret the body as json and unmarshal it into the [v] output pointer.
+// JsonBody attempts to interpret the body as json and unmarshal it into the v output pointer.
 func (r *Response) JsonBody(v any) error {
 	return json.Unmarshal(r.body, v)
 }
 
-// HtmlBody attempts to interpret the body as html and parse it into a [*goquery.Document].
+// HtmlBody attempts to interpret the body as html and parse it into a [html.Node]
 func (r *Response) HtmlBody() (*html.Node, error) {
 	return html.Parse(bytes.NewBuffer(r.body))
 }

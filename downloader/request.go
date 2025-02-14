@@ -4,7 +4,6 @@ import (
 	"io"
 	"net/http"
 	"net/url"
-	"strings"
 )
 
 // Request represents a standard HTTP request.
@@ -12,7 +11,18 @@ type Request struct {
 	Method  string
 	Url     *url.URL
 	Headers http.Header
-	Body    io.Reader
+	Body    []byte
+
+	// DirectBody should be used to pipe an [io.Reader] directly into an HTTP request's body,
+	// bypassing all external processing done by middleware or user code.
+	//
+	// This should only be read from the final step in making the request, as it is not
+	// certain that the given [io.Reader] can be read from more than once.
+	DirectBody io.Reader
+
+	// DirectResponse can be set to true to indicate that the response body should not be
+	// read into a byteslice but remain an [io.Reader] for direct usage.
+	DirectResponse bool
 }
 
 // SetHeader sets an http header on the request.
@@ -31,7 +41,7 @@ func (r *Request) SetContentType(mimetype string) *Request {
 }
 
 // SetBody sets the body of the request to an [io.Reader] without changing content-type.
-func (r *Request) SetBody(mimetype string, body io.Reader) {
+func (r *Request) SetBody(mimetype string, body []byte) {
 	r.SetContentType(mimetype)
 	r.Body = body
 }
@@ -40,13 +50,13 @@ func (r *Request) SetBody(mimetype string, body io.Reader) {
 // [application/x-www-url-encoded form](https://developer.mozilla.org/en-US/docs/Web/HTTP/Methods/POST)
 func (r *Request) SetBodyURLEncodedForm(form url.Values) {
 	r.SetContentType("application/x-www-form-urlencoded")
-	r.Body = strings.NewReader(form.Encode())
+	r.Body = []byte(form.Encode())
 }
 
 // SetBodyMultipartForm sets the body and content-type of the request to an
 // [multipart/form-data](https://developer.mozilla.org/en-US/docs/Web/HTTP/Methods/POST)
 //
-// Note: you'll need to create the [contents] parameter with a [bytes.Buffer] and a [multipart.NewWriter] in a manner like follows:
+// Note: you'll need to create the contents parameter with a [bytes.Buffer] and a [multipart.NewWriter] in a manner like follows:
 //
 //	var buffer bytes.Buffer
 //	writer := multipart.NewWriter(&buffer)
@@ -60,7 +70,9 @@ func (r *Request) SetBodyURLEncodedForm(form url.Values) {
 //	fileWriter, err = writer.CreateFormFile("key", "some_file.txt")
 //
 //	_, err = io.Copy(fileWriter, file)
-func (r *Request) SetBodyMultipartForm(contents io.Reader) {
+//
+//	req.SetBodyMultipartForm(buffer.Bytes())
+func (r *Request) SetBodyMultipartForm(contents []byte) {
 	r.SetContentType("multipart/form-data")
 	r.Body = contents
 }
@@ -68,7 +80,7 @@ func (r *Request) SetBodyMultipartForm(contents io.Reader) {
 // SetBodyJSON sets the body of the request to a json string.
 func (r *Request) SetBodyJSON(json string) {
 	r.SetContentType("application/json")
-	r.Body = strings.NewReader(json)
+	r.Body = []byte(json)
 }
 
 // MustParseUrl attempts to the parse the given rawUrl into a [*url.URL]

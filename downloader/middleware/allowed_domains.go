@@ -14,10 +14,10 @@ type AllowedDomains struct {
 	responseDomains []glob.Glob
 }
 
-// NewAllowedDomains creates an [AllowedDomains] middleware.
+// NewAllowedDomains creates an AllowedDomains middleware.
 //
-//   - if [forRequests] is nil or empty, it will allow all requests.
-//   - if [forResponses] is nil or empty, it will allow all responses.
+//   - if forRequests is nil or empty, it will allow all requests.
+//   - if forResponses is nil or empty, it will allow all responses.
 //
 // You can use wildcards (*) in the domains. [documentation](https://github.com/gobwas/glob)
 func NewAllowedDomains(forRequests, forResponses []string) AllowedDomains {
@@ -36,9 +36,9 @@ func NewAllowedDomains(forRequests, forResponses []string) AllowedDomains {
 	}
 }
 
-func (p AllowedDomains) HandleRequest(ctx context.Context, dl downloader.Downloader, req *downloader.Request) (*downloader.Request, error) {
+func (p AllowedDomains) HandleRequest(ctx context.Context, dl downloader.Downloader, req *downloader.Request) (*downloader.Response, error) {
 	if len(p.requestDomains) == 0 {
-		return req, nil
+		return nil, nil
 	}
 
 	hostname := req.Url.Hostname()
@@ -57,12 +57,12 @@ func (p AllowedDomains) HandleRequest(ctx context.Context, dl downloader.Downloa
 		)
 	}
 
-	return req, nil
+	return nil, nil
 }
 
-func (p AllowedDomains) HandleResponse(ctx context.Context, dl downloader.Downloader, res *downloader.Response) (*downloader.Response, error) {
+func (p AllowedDomains) HandleResponse(ctx context.Context, dl downloader.Downloader, res *downloader.Response) error {
 	if len(p.responseDomains) == 0 {
-		return res, nil
+		return nil
 	}
 
 	resUrl := res.Url()
@@ -76,12 +76,12 @@ func (p AllowedDomains) HandleResponse(ctx context.Context, dl downloader.Downlo
 		}
 	}
 	if !matched {
-		return nil, fmt.Errorf(
+		return fmt.Errorf(
 			"allowed domains: response from domain (for a request to '%s') '%s' is not allowed",
 			res.Request().Url,
 			hostname,
 		)
 	}
 
-	return res, nil
+	return nil
 }
