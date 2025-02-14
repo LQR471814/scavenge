@@ -1,0 +1,87 @@
+package middleware
+
+import (
+	"context"
+	"fmt"
+	"scavenge/downloader"
+
+	"github.com/gobwas/glob"
+)
+
+// AllowedDomains is a [downloader.DownloaderMiddleware] that limits the domains of requests and responses.
+type AllowedDomains struct {
+	requestDomains  []glob.Glob
+	responseDomains []glob.Glob
+}
+
+// NewAllowedDomains creates an [AllowedDomains] middleware.
+//
+//   - if [forRequests] is nil or empty, it will allow all requests.
+//   - if [forResponses] is nil or empty, it will allow all responses.
+//
+// You can use wildcards (*) in the domains. [documentation](https://github.com/gobwas/glob)
+func NewAllowedDomains(forRequests, forResponses []string) AllowedDomains {
+	requestDomains := make([]glob.Glob, len(forRequests))
+	responseDomains := make([]glob.Glob, len(forResponses))
+	for i, d := range forRequests {
+		requestDomains[i] = glob.MustCompile(d, '.')
+	}
+	for i, d := range forResponses {
+		responseDomains[i] = glob.MustCompile(d, '.')
+	}
+
+	return AllowedDomains{
+		requestDomains:  requestDomains,
+		responseDomains: responseDomains,
+	}
+}
+
+func (p AllowedDomains) HandleRequest(ctx context.Context, dl downloader.Downloader, req *downloader.Request) (*downloader.Request, error) {
+	if len(p.requestDomains) == 0 {
+		return req, nil
+	}
+
+	hostname := req.Url.Hostname()
+	matched := false
+	for _, domain := range p.requestDomains {
+		matched = domain.Match(hostname)
+		if matched {
+			break
+		}
+	}
+	if !matched {
+		return nil, fmt.Errorf(
+			"allowed domains: aborting request to '%s', domain '%s' is not allowed",
+			req.Url.String(),
+			hostname,
+		)
+	}
+
+	return req, nil
+}
+
+func (p AllowedDomains) HandleResponse(ctx context.Context, dl downloader.Downloader, res *downloader.Response) (*downloader.Response, error) {
+	if len(p.responseDomains) == 0 {
+		return res, nil
+	}
+
+	resUrl := res.Url()
+	hostname := resUrl.Hostname()
+
+	matched := false
+	for _, domain := range p.requestDomains {
+		matched = domain.Match(hostname)
+		if matched {
+			break
+		}
+	}
+	if !matched {
+		return nil, fmt.Errorf(
+			"allowed domains: response from domain (for a request to '%s') '%s' is not allowed",
+			res.Request().Url,
+			hostname,
+		)
+	}
+
+	return res, nil
+}

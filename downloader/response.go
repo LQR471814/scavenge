@@ -1,4 +1,4 @@
-package scavenge
+package downloader
 
 import (
 	"bytes"

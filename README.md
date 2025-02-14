@@ -1,6 +1,6 @@
 # scavenge
 
-> A clean and modern scraping framework for go, based on python's scrapy.
+> A modern, modular scraping framework for go, based on python's scrapy.
 
 ## requirements
 

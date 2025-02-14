@@ -1,4 +1,4 @@
-package scavenge
+package item
 
 // Item represents some information retrieved by a spider that may or may not have gone through processing
 // in item pipelines.
@@ -12,6 +12,10 @@ package scavenge
 // To read information from an item, call [CastItem] with the type of the value you wish to find in the array.
 // For item pipelines that need to read generic information, it is better to export an interface that any
 // struct can implement. [CastItem] will find the first added struct that makes the type cast successful.
+//
+// Note: Item is supposed to be immutable, that means you should, under no circumstances, do something like
+//
+//	item[0] = ...
 type Item []any
 
 // Add creates a new item with the value appended to its entries.

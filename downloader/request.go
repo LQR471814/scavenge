@@ -1,4 +1,4 @@
-package scavenge
+package downloader
 
 import (
 	"io"
@@ -10,7 +10,7 @@ import (
 // Request represents a standard HTTP request.
 type Request struct {
 	Method  string
-	Url     string
+	Url     *url.URL
 	Headers http.Header
 	Body    io.Reader
 }
@@ -71,37 +71,47 @@ func (r *Request) SetBodyJSON(json string) {
 	r.Body = strings.NewReader(json)
 }
 
+// MustParseUrl attempts to the parse the given rawUrl into a [*url.URL]
+// if an error is encountered, it panics.
+func MustParseUrl(rawUrl string) *url.URL {
+	res, err := url.Parse(rawUrl)
+	if err != nil {
+		panic(err)
+	}
+	return res
+}
+
 // NewRequest creates a new request with no headers or body.
-func NewRequest(method, url string) *Request {
+func NewRequest(method string, url *url.URL) *Request {
 	return &Request{Method: method, Url: url}
 }
 
-// GetRequest returns a GET request with no headers or body.
-func GetRequest(url string) *Request {
+// GETRequest returns a GET request with no headers or body.
+func GETRequest(url *url.URL) *Request {
 	return &Request{Method: http.MethodGet, Url: url}
 }
 
-// PostRequest returns a POST request with no headers or body.
-func PostRequest(url string) *Request {
+// POSTRequest returns a POST request with no headers or body.
+func POSTRequest(url *url.URL) *Request {
 	return &Request{Method: http.MethodPost, Url: url}
 }
 
-// DeleteRequest returns a DELETE request with no headers or body.
-func DeleteRequest(url string) *Request {
+// DELETERequest returns a DELETE request with no headers or body.
+func DELETERequest(url *url.URL) *Request {
 	return &Request{Method: http.MethodDelete, Url: url}
 }
 
-// PatchRequest returns a PATCH request with no headers or body.
-func PatchRequest(url string) *Request {
+// PATCHRequest returns a PATCH request with no headers or body.
+func PATCHRequest(url *url.URL) *Request {
 	return &Request{Method: http.MethodPatch, Url: url}
 }
 
-// PutRequest returns a PUT request with no headers or body.
-func PutRequest(url string) *Request {
+// PUTRequest returns a PUT request with no headers or body.
+func PUTRequest(url *url.URL) *Request {
 	return &Request{Method: http.MethodPut, Url: url}
 }
 
-// HeadRequest returns a HEAD request with no headers or body.
-func HeadRequest(url string) *Request {
+// HEADRequest returns a HEAD request with no headers or body.
+func HEADRequest(url *url.URL) *Request {
 	return &Request{Method: http.MethodHead, Url: url}
 }
