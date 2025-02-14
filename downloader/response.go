@@ -6,7 +6,7 @@ import (
 	"net/http"
 	"net/url"
 
-	"github.com/PuerkitoBio/goquery"
+	"golang.org/x/net/html"
 )
 
 // Response represents a standard HTTP response with some convenience methods.
@@ -48,6 +48,6 @@ func (r *Response) JsonBody(v any) error {
 }
 
 // HtmlBody attempts to interpret the body as html and parse it into a [*goquery.Document].
-func (r *Response) HtmlBody() (*goquery.Document, error) {
-	return goquery.NewDocumentFromReader(bytes.NewBuffer(r.body))
+func (r *Response) HtmlBody() (*html.Node, error) {
+	return html.Parse(bytes.NewBuffer(r.body))
 }
