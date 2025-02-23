@@ -19,6 +19,7 @@ import (
 // used in a Cache.
 type ReplayStore interface {
 	Has(ctx context.Context, id string) bool
+	// Get should return nil if a stored request with the given id does not yet exist.
 	Get(ctx context.Context, id string) *downloader.Response
 	Set(ctx context.Context, id string, res *downloader.Response)
 }
@@ -28,7 +29,6 @@ type MemoryReplayStore struct {
 	store sync.Map
 }
 
-// NewMemoryReplayStore creates a MemoryCacheStore.
 func NewMemoryReplayStore() *MemoryReplayStore {
 	return &MemoryReplayStore{
 		store: sync.Map{},
@@ -83,9 +83,12 @@ type FSReplayStore struct {
 	dir string
 }
 
-// NewFSReplayStore creates a new FSReplayStore.
-func NewFSReplayStore(dir string) FSReplayStore {
-	return FSReplayStore{dir: dir}
+func NewFSReplayStore(dir string) (FSReplayStore, error) {
+	err := os.MkdirAll(dir, 0666)
+	if err != nil {
+		return FSReplayStore{}, err
+	}
+	return FSReplayStore{dir: dir}, nil
 }
 
 func (s FSReplayStore) filepath(id string) string {
@@ -95,10 +98,13 @@ func (s FSReplayStore) filepath(id string) string {
 }
 
 func (s FSReplayStore) Get(ctx context.Context, id string) *downloader.Response {
-	logger := scavenge.GetLoggerFromContext(ctx)
+	logger := scavenge.LoggerFromContext(ctx)
 
 	path := s.filepath(id)
 	f, err := os.Open(path)
+	if os.IsNotExist(err) {
+		return nil
+	}
 	if err != nil {
 		logger.Error("fs_cache_store", "open file", "path", path, "err", err)
 		return nil
@@ -117,9 +123,12 @@ func (s FSReplayStore) Get(ctx context.Context, id string) *downloader.Response 
 }
 
 func (s FSReplayStore) Has(ctx context.Context, id string) bool {
-	logger := scavenge.GetLoggerFromContext(ctx)
+	logger := scavenge.LoggerFromContext(ctx)
 	path := s.filepath(id)
 	_, err := os.Stat(path)
+	if os.IsNotExist(err) {
+		return false
+	}
 	if err != nil {
 		logger.Error("fs_cache_store", "stat file", "path", path, "err", err)
 		return false
@@ -128,7 +137,7 @@ func (s FSReplayStore) Has(ctx context.Context, id string) bool {
 }
 
 func (s FSReplayStore) Set(ctx context.Context, id string, res *downloader.Response) {
-	logger := scavenge.GetLoggerFromContext(ctx)
+	logger := scavenge.LoggerFromContext(ctx)
 
 	path := s.filepath(id)
 	f, err := os.Create(path)

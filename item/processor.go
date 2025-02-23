@@ -7,7 +7,7 @@ type Pipeline interface {
 	HandleItem(item Item) (Item, error)
 }
 
-// Processor is a list of Pipeline.
+// Processor runs a list of item pipelines over the items given as input to it.
 type Processor struct {
 	pipelines []Pipeline
 }

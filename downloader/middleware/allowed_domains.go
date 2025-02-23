@@ -36,7 +36,7 @@ func NewAllowedDomains(forRequests, forResponses []string) AllowedDomains {
 	}
 }
 
-func (p AllowedDomains) HandleRequest(ctx context.Context, dl downloader.Downloader, req *downloader.Request) (*downloader.Response, error) {
+func (p AllowedDomains) HandleRequest(ctx context.Context, req *downloader.Request, meta downloader.RequestMetadata) (*downloader.Response, error) {
 	if len(p.requestDomains) == 0 {
 		return nil, nil
 	}
@@ -62,7 +62,6 @@ func (p AllowedDomains) HandleRequest(ctx context.Context, dl downloader.Downloa
 
 func (p AllowedDomains) HandleResponse(
 	ctx context.Context,
-	dl downloader.Downloader,
 	res *downloader.Response,
 	meta downloader.ResponseMetadata,
 ) error {

@@ -24,5 +24,9 @@ func (e ExportJson) HandleItem(item item.Item) (item.Item, error) {
 	if err != nil {
 		return nil, err
 	}
+	_, err = e.output.Write([]byte("\n"))
+	if err != nil {
+		return nil, err
+	}
 	return item, nil
 }

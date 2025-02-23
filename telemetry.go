@@ -1,6 +1,9 @@
 package scavenge
 
-import "context"
+import (
+	"context"
+	"net/url"
+)
 
 // Logger is an interface containing logging reporters.
 //
@@ -26,9 +29,21 @@ func setLogCtx(ctx context.Context, log Logger) context.Context {
 	return context.WithValue(ctx, logCtxKey, log)
 }
 
-// GetLoggerFromContext retrieves a Logger from the given context,
+// LoggerFromContext retrieves a Logger from the given context,
 // it will panic if the Logger is not there.
-func GetLoggerFromContext(ctx context.Context) Logger {
+func LoggerFromContext(ctx context.Context) Logger {
 	value := ctx.Value(logCtxKey).(Logger)
 	return value
+}
+
+// ShortUrl formats a url.URL without its schema for use in logging and errors.
+func ShortUrl(u *url.URL) string {
+	if u == nil {
+		return "<nil>"
+	}
+	formattedURL := u.Host + u.Path
+	if u.RawQuery != "" {
+		formattedURL += "?" + u.RawQuery
+	}
+	return formattedURL
 }

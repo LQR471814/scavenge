@@ -6,48 +6,19 @@ import (
 	"time"
 )
 
-type ResponseMetadata struct {
-	Elapsed time.Duration
-}
-
-// Middleware runs before a request or a response, if either [HandleRequest] or [HandleResponse]
-// return an error, the request will be aborted.
+// Downloader is effectively an HTTP client wrapped in middleware.
 //
-// if HandleRequest returns a non-nil Response, it will be used as the response for the request
-// and the rest of the request middlewares will be skipped, this response will also bypass response
-// middlewares.
-type Middleware interface {
-	HandleRequest(ctx context.Context, dl Downloader, req *Request) (*Response, error)
-	HandleResponse(ctx context.Context, dl Downloader, res *Response, meta ResponseMetadata) error
-}
-
-type config struct {
+// Note:
+//   - Middlewares are evaluated from start to finish for requests and responses.
+type Downloader struct {
+	client     Client
 	middleware []Middleware
 }
-type option func(cfg *config)
 
-// WithMiddleware appends the given middleware to the list of registered middlewares.
-func WithMiddleware(middleware ...Middleware) option {
-	return func(cfg *config) {
-		cfg.middleware = append(cfg.middleware, middleware...)
-	}
-}
-
-type Downloader struct {
-	client Client
-	cfg    config
-}
-
-// NewDownloader creates a Downloader.
-func NewDownloader(client Client, options ...option) Downloader {
-	cfg := config{}
-	for _, option := range options {
-		option(&cfg)
-	}
-
+func NewDownloader(client Client, middleware ...Middleware) Downloader {
 	downloader := Downloader{
-		client: client,
-		cfg:    cfg,
+		client:     client,
+		middleware: middleware,
 	}
 	return downloader
 }
@@ -58,9 +29,9 @@ func (d Downloader) Client() Client {
 }
 
 // Queue queues a request for downloading.
-func (d Downloader) Download(ctx context.Context, req *Request) (*Response, error) {
-	for _, mid := range d.cfg.middleware {
-		res, err := mid.HandleRequest(ctx, d, req)
+func (d Downloader) Download(ctx context.Context, req *Request, meta RequestMetadata) (*Response, error) {
+	for _, mid := range d.middleware {
+		res, err := mid.HandleRequest(ctx, req, meta)
 		if err != nil {
 			return nil, fmt.Errorf("req middleware: %w", err)
 		}
@@ -76,12 +47,13 @@ func (d Downloader) Download(ctx context.Context, req *Request) (*Response, erro
 	}
 	t2 := time.Now()
 
-	meta := ResponseMetadata{
-		Elapsed: t2.Sub(t1),
+	resMeta := ResponseMetadata{
+		RequestMetadata: meta,
+		Elapsed:         t2.Sub(t1),
 	}
 
-	for _, mid := range d.cfg.middleware {
-		err = mid.HandleResponse(ctx, d, res, meta)
+	for _, mid := range d.middleware {
+		err = mid.HandleResponse(ctx, res, resMeta)
 		if err != nil {
 			return nil, fmt.Errorf("resp middleware: %w", err)
 		}

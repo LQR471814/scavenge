@@ -4,12 +4,15 @@ import (
 	"context"
 	"encoding/gob"
 	"fmt"
-	"io"
+	"math"
+	"math/rand/v2"
 	"net/url"
 	"runtime"
 	"scavenge/downloader"
 	"scavenge/item"
+	"strings"
 	"sync"
+	"time"
 )
 
 // Spider contains the business logic of navigating to different links and storing structured data from
@@ -20,7 +23,7 @@ import (
 // set to 1.
 type Spider interface {
 	StartingRequests() []*downloader.Request
-	HandleResponse(navigator Navigator, response *downloader.Response) error
+	HandleResponse(nav Navigator, res *downloader.Response) error
 }
 
 // Scavenger
@@ -36,21 +39,12 @@ type Scavenger struct {
 	stateLock sync.Mutex
 }
 
-type reqJob struct {
-	Req     *downloader.Request
-	Referer *url.URL
-}
-
-type StateStore interface {
-	Load() (io.ReadCloser, error)
-	Store() (io.WriteCloser, error)
-	Delete() error
-}
-
 type config struct {
 	stateStore        StateStore
 	parallelDownloads int
 	parallelItems     int
+	minRetryDelay     time.Duration
+	maxRetryDelay     time.Duration
 	reqFailHandler    func(req *downloader.Request, err error)
 	spiderFailHandler func(res *downloader.Response, err error)
 	iprocFailHandler  func(i item.Item, err error)
@@ -62,6 +56,21 @@ type option func(cfg *config)
 func WithStateStore(store StateStore) option {
 	return func(cfg *config) {
 		cfg.stateStore = store
+	}
+}
+
+// WithRetryDelayBounds sets the bounds for retry delay.
+func WithRetryDelayBounds(minDelay, maxDelay time.Duration) option {
+	return func(cfg *config) {
+		if minDelay > maxDelay {
+			panic(fmt.Errorf(
+				"min retry delay '%v' was greater than max retry delay '%v'",
+				minDelay,
+				maxDelay,
+			))
+		}
+		cfg.minRetryDelay = minDelay
+		cfg.maxRetryDelay = maxDelay
 	}
 }
 
@@ -135,20 +144,42 @@ func (s *Scavenger) handleRequest(
 ) {
 	defer s.wg.Done()
 
-	s.log.Info("scavenger", "download", "url", job.Req.Url, "referer", job.Referer.String())
+	s.log.Info(
+		"scavenger", "download",
+		"url", ShortUrl(job.Req.Url),
+		"referer", ShortUrl(job.Referer),
+		"attempt", job.attempt,
+	)
 
-	res, err := s.dl.Download(ctx, job.Req)
+	ctx = setLogCtx(ctx, s.log)
+
+	res, err := s.dl.Download(ctx, job.Req, downloader.RequestMetadata{
+		AttemptNo: job.attempt,
+		Referer:   job.Referer,
+	})
 	if err != nil {
-		err := fmt.Errorf("downloader: %w", err)
+		if strings.Contains(err.Error(), "dropped request:") {
+			s.log.Warn(
+				"scavenger", "dropped request",
+				"url", ShortUrl(job.Req.Url),
+				"referer", ShortUrl(job.Referer),
+				"attempt", job.attempt,
+				"err", err,
+			)
+			return
+		}
+
 		s.log.Error(
 			"scavenger", "request download failed",
-			"url", job.Req.Url,
-			"referer", job.Referer,
-			"error", err,
+			"url", ShortUrl(job.Req.Url),
+			"referer", ShortUrl(job.Referer),
+			"attempt", job.attempt,
+			"err", err,
 		)
 		if s.cfg.reqFailHandler != nil {
 			s.cfg.reqFailHandler(job.Req, err)
 		}
+		go s.retryReqJob(job)
 		return
 	}
 
@@ -160,13 +191,15 @@ func (s *Scavenger) handleRequest(
 		err := fmt.Errorf("spider: %w", err)
 		s.log.Error(
 			"scavenger", "spider handle response failed",
-			"url", job.Req.Url,
-			"referer", job.Referer,
-			"error", err,
+			"url", ShortUrl(job.Req.Url),
+			"referer", ShortUrl(job.Referer),
+			"attempt", job.attempt,
+			"err", err,
 		)
 		if s.cfg.spiderFailHandler != nil {
 			s.cfg.spiderFailHandler(res, err)
 		}
+		go s.retryReqJob(job)
 	}
 }
 
@@ -178,7 +211,7 @@ func (s *Scavenger) handleItem(i item.Item) {
 		s.log.Error(
 			"scavenger", "item processing failed",
 			"item", i,
-			"error", err,
+			"err", err,
 		)
 		if s.cfg.iprocFailHandler != nil {
 			s.cfg.iprocFailHandler(i, err)
@@ -187,12 +220,35 @@ func (s *Scavenger) handleItem(i item.Item) {
 	}
 }
 
-type state struct {
-	reqs  []reqJob
-	items []item.Item
+func (s *Scavenger) loadState() (resumed bool) {
+	if s.cfg.stateStore == nil {
+		return false
+	}
+	r, err := s.cfg.stateStore.Load()
+	if err != nil {
+		s.log.Error("scavenge", "load state: open store for reading", "err", err)
+		return false
+	}
+
+	decoder := gob.NewDecoder(r)
+	var remaining state
+	err = decoder.Decode(&remaining)
+	if err != nil {
+		s.log.Error("scavenge", "load state: decode state", "err", err)
+		return false
+	}
+
+	for _, reqjob := range remaining.reqs {
+		s.queueReqJob(reqjob.Req, reqjob.Referer)
+	}
+	for _, itemjob := range remaining.items {
+		s.queueItemJob(itemjob)
+	}
+
+	return len(remaining.reqs) > 0 || len(remaining.items) > 0
 }
 
-func (s *Scavenger) flushState() {
+func (s *Scavenger) saveState() {
 	if !s.stateLock.TryLock() {
 		return
 	}
@@ -245,6 +301,15 @@ func (s *Scavenger) queueReqJob(req *downloader.Request, referer *url.URL) {
 	}
 }
 
+func (s *Scavenger) retryReqJob(reqjob reqJob) {
+	seconds := int(math.Pow(2, float64(reqjob.attempt)))
+	jitter := rand.IntN(seconds)
+	time.Sleep(time.Second * time.Duration(seconds+jitter))
+	s.wg.Add(1)
+	reqjob.attempt++
+	s.reqjobs <- reqjob
+}
+
 func (s *Scavenger) queueItemJob(i item.Item) {
 	s.wg.Add(1)
 	s.itemjobs <- i
@@ -254,7 +319,7 @@ func (s *Scavenger) reqWorker(ctx context.Context, spider Spider) {
 	for {
 		select {
 		case <-ctx.Done():
-			s.flushState()
+			s.saveState()
 			return
 		case job := <-s.reqjobs:
 			s.handleRequest(ctx, spider, job)
@@ -266,7 +331,7 @@ func (s *Scavenger) itemWorker(ctx context.Context) {
 	for {
 		select {
 		case <-ctx.Done():
-			s.flushState()
+			s.saveState()
 			return
 		case item := <-s.itemjobs:
 			s.handleItem(item)
@@ -276,7 +341,11 @@ func (s *Scavenger) itemWorker(ctx context.Context) {
 
 // Run runs the given spider on the scavenger, this should not be run concurrently.
 func (s *Scavenger) Run(ctx context.Context, spider Spider) {
-	s.log.Info("scavenger", "running spider", "workers", s.cfg.parallelDownloads)
+	s.log.Info(
+		"scavenger", "running spider",
+		"download_workers", s.cfg.parallelDownloads,
+		"item_workers", s.cfg.parallelItems,
+	)
 
 	s.stateLock = sync.Mutex{}
 	s.itemjobs = make(chan item.Item)
@@ -290,9 +359,14 @@ func (s *Scavenger) Run(ctx context.Context, spider Spider) {
 		go s.itemWorker(ctx)
 	}
 
-	requests := spider.StartingRequests()
-	for _, r := range requests {
-		s.queueReqJob(r, nil)
+	resumed := s.loadState()
+	if resumed {
+		s.log.Info("scavenger", "resuming from saved state...")
+	} else {
+		requests := spider.StartingRequests()
+		for _, r := range requests {
+			s.queueReqJob(r, nil)
+		}
 	}
 
 	s.wg.Wait()

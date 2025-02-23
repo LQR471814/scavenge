@@ -18,15 +18,15 @@ type Navigator struct {
 }
 
 func (n Navigator) SaveItem(value any) {
-	n.scavenger.queueItemJob(item.Item{value})
+	go n.scavenger.queueItemJob(item.Item{value})
 }
 
 func (n Navigator) Request(req *downloader.Request) {
-	n.scavenger.queueReqJob(req, n.currentUrl)
+	go n.scavenger.queueReqJob(req, n.currentUrl)
 }
 
 func (n Navigator) FollowUrl(u *url.URL) {
-	n.scavenger.queueReqJob(downloader.GETRequest(u), n.currentUrl)
+	go n.scavenger.queueReqJob(downloader.GETRequest(u), n.currentUrl)
 }
 
 func (n Navigator) FollowAnchor(a *html.Node) error {
@@ -59,9 +59,7 @@ func (n Navigator) FollowAnchor(a *html.Node) error {
 	}
 	abs := n.currentUrl.ResolveReference(ref)
 
-	n.scavenger.reqjobs <- reqJob{
-		Req:     downloader.GETRequest(abs),
-		Referer: n.currentUrl,
-	}
+	go n.scavenger.queueReqJob(downloader.GETRequest(abs), n.currentUrl)
+
 	return nil
 }
