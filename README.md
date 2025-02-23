@@ -1,6 +1,6 @@
 # scavenge
 
-> A modern, modular scraping framework for go, based on python's scrapy.
+> A modern, batteries-included, modular scraping framework for go, based on python's scrapy.
 
 ## requirements
 
@@ -9,7 +9,6 @@
 - [x] methods to deduplicate requests
 - [x] methods to schedule requests, do rate limiting
 - [x] methods to transform scraped export information 
-- [ ] convenient method to develop and test scraping code
 
 ## design?
 

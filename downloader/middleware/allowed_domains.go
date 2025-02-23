@@ -60,7 +60,12 @@ func (p AllowedDomains) HandleRequest(ctx context.Context, dl downloader.Downloa
 	return nil, nil
 }
 
-func (p AllowedDomains) HandleResponse(ctx context.Context, dl downloader.Downloader, res *downloader.Response) error {
+func (p AllowedDomains) HandleResponse(
+	ctx context.Context,
+	dl downloader.Downloader,
+	res *downloader.Response,
+	meta downloader.ResponseMetadata,
+) error {
 	if len(p.responseDomains) == 0 {
 		return nil
 	}

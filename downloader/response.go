@@ -13,6 +13,7 @@ import (
 // Response represents a standard HTTP response with some convenience methods.
 type Response struct {
 	request *Request
+	status  int
 	url     *url.URL
 	headers http.Header
 	body    []byte
@@ -20,13 +21,24 @@ type Response struct {
 	directBody io.Reader
 }
 
-func NewResponse() {
-
+func NewResponse(request *Request, status int, url *url.URL, headers http.Header, body []byte) *Response {
+	return &Response{
+		status:  status,
+		request: request,
+		url:     url,
+		headers: headers,
+		body:    body,
+	}
 }
 
 // Request returns the request associated with this response.
 func (r *Response) Request() *Request {
 	return r.request
+}
+
+// Status returns the HTTP status for the response.
+func (r *Response) Status() int {
+	return r.status
 }
 
 // Url returns the url (after redirecting) the response came from.

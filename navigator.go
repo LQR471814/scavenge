@@ -60,8 +60,8 @@ func (n Navigator) FollowAnchor(a *html.Node) error {
 	abs := n.currentUrl.ResolveReference(ref)
 
 	n.scavenger.reqjobs <- reqJob{
-		req:     downloader.GETRequest(abs),
-		referer: n.currentUrl,
+		Req:     downloader.GETRequest(abs),
+		Referer: n.currentUrl,
 	}
 	return nil
 }

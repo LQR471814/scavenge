@@ -2,7 +2,9 @@ package scavenge
 
 import (
 	"context"
+	"encoding/gob"
 	"fmt"
+	"io"
 	"net/url"
 	"runtime"
 	"scavenge/downloader"
@@ -28,17 +30,25 @@ type Scavenger struct {
 	dl    downloader.Downloader
 	iproc item.Processor
 
-	reqjobs  chan reqJob
-	itemjobs chan item.Item
-	wg       sync.WaitGroup
+	reqjobs   chan reqJob
+	itemjobs  chan item.Item
+	wg        sync.WaitGroup
+	stateLock sync.Mutex
 }
 
 type reqJob struct {
-	req     *downloader.Request
-	referer *url.URL
+	Req     *downloader.Request
+	Referer *url.URL
+}
+
+type StateStore interface {
+	Load() (io.ReadCloser, error)
+	Store() (io.WriteCloser, error)
+	Delete() error
 }
 
 type config struct {
+	stateStore        StateStore
 	parallelDownloads int
 	parallelItems     int
 	reqFailHandler    func(req *downloader.Request, err error)
@@ -47,6 +57,13 @@ type config struct {
 }
 
 type option func(cfg *config)
+
+// WithStateStore sets the interface the Scavenger uses for saving incomplete scraping state.
+func WithStateStore(store StateStore) option {
+	return func(cfg *config) {
+		cfg.stateStore = store
+	}
+}
 
 // WithParallelDownloads sets the amount of requests and responses that can be processed in parallel.
 func WithParallelDownloads(count int) option {
@@ -92,34 +109,23 @@ func WithOnItemProcessorFail(callback func(i item.Item, err error)) option {
 func NewScavenger(
 	dl downloader.Downloader,
 	items item.Processor,
-	tel Logger,
+	logger Logger,
 	options ...option,
 ) *Scavenger {
+	defaultParDowns := runtime.NumCPU() / 2
 	cfg := config{
-		parallelDownloads: runtime.NumCPU(),
+		parallelDownloads: defaultParDowns,
+		parallelItems:     runtime.NumCPU() - defaultParDowns,
 	}
 	for _, opt := range options {
 		opt(&cfg)
 	}
 	return &Scavenger{
 		cfg:   cfg,
-		log:   tel,
+		log:   logger,
 		dl:    dl,
 		iproc: items,
 	}
-}
-
-func (s *Scavenger) queueReqJob(req *downloader.Request, referer *url.URL) {
-	s.wg.Add(1)
-	s.reqjobs <- reqJob{
-		req:     req,
-		referer: referer,
-	}
-}
-
-func (s *Scavenger) queueItemJob(i item.Item) {
-	s.wg.Add(1)
-	s.itemjobs <- i
 }
 
 func (s *Scavenger) handleRequest(
@@ -129,19 +135,19 @@ func (s *Scavenger) handleRequest(
 ) {
 	defer s.wg.Done()
 
-	s.log.Info("scavenger", "download", "url", job.req.Url, "referer", job.referer.String())
+	s.log.Info("scavenger", "download", "url", job.Req.Url, "referer", job.Referer.String())
 
-	res, err := s.dl.Download(ctx, job.req)
+	res, err := s.dl.Download(ctx, job.Req)
 	if err != nil {
 		err := fmt.Errorf("downloader: %w", err)
 		s.log.Error(
 			"scavenger", "request download failed",
-			"url", job.req.Url,
-			"referer", job.referer,
+			"url", job.Req.Url,
+			"referer", job.Referer,
 			"error", err,
 		)
 		if s.cfg.reqFailHandler != nil {
-			s.cfg.reqFailHandler(job.req, err)
+			s.cfg.reqFailHandler(job.Req, err)
 		}
 		return
 	}
@@ -154,23 +160,12 @@ func (s *Scavenger) handleRequest(
 		err := fmt.Errorf("spider: %w", err)
 		s.log.Error(
 			"scavenger", "spider handle response failed",
-			"url", job.req.Url,
-			"referer", job.referer,
+			"url", job.Req.Url,
+			"referer", job.Referer,
 			"error", err,
 		)
 		if s.cfg.spiderFailHandler != nil {
 			s.cfg.spiderFailHandler(res, err)
-		}
-	}
-}
-
-func (s *Scavenger) reqWorker(ctx context.Context, spider Spider) {
-	for {
-		select {
-		case job := <-s.reqjobs:
-			s.handleRequest(ctx, spider, job)
-		case <-ctx.Done():
-			return
 		}
 	}
 }
@@ -192,13 +187,89 @@ func (s *Scavenger) handleItem(i item.Item) {
 	}
 }
 
+type state struct {
+	reqs  []reqJob
+	items []item.Item
+}
+
+func (s *Scavenger) flushState() {
+	if !s.stateLock.TryLock() {
+		return
+	}
+	if s.cfg.stateStore == nil {
+		return
+	}
+
+	var remaining state
+
+req:
+	for {
+		select {
+		case job := <-s.reqjobs:
+			remaining.reqs = append(remaining.reqs, job)
+		default:
+			break req
+		}
+	}
+
+item:
+	for {
+		select {
+		case job := <-s.itemjobs:
+			remaining.items = append(remaining.items, job)
+		default:
+			break item
+		}
+	}
+
+	w, err := s.cfg.stateStore.Store()
+	if err != nil {
+		s.log.Error("scavenge", "save state: open store for writing", "err", err)
+		return
+	}
+	defer w.Close()
+
+	encoder := gob.NewEncoder(w)
+	err = encoder.Encode(remaining)
+	if err != nil {
+		s.log.Error("scavenge", "save state: encode state", "err", err)
+		return
+	}
+}
+
+func (s *Scavenger) queueReqJob(req *downloader.Request, referer *url.URL) {
+	s.wg.Add(1)
+	s.reqjobs <- reqJob{
+		Req:     req,
+		Referer: referer,
+	}
+}
+
+func (s *Scavenger) queueItemJob(i item.Item) {
+	s.wg.Add(1)
+	s.itemjobs <- i
+}
+
+func (s *Scavenger) reqWorker(ctx context.Context, spider Spider) {
+	for {
+		select {
+		case <-ctx.Done():
+			s.flushState()
+			return
+		case job := <-s.reqjobs:
+			s.handleRequest(ctx, spider, job)
+		}
+	}
+}
+
 func (s *Scavenger) itemWorker(ctx context.Context) {
 	for {
 		select {
+		case <-ctx.Done():
+			s.flushState()
+			return
 		case item := <-s.itemjobs:
 			s.handleItem(item)
-		case <-ctx.Done():
-			return
 		}
 	}
 }
@@ -207,6 +278,7 @@ func (s *Scavenger) itemWorker(ctx context.Context) {
 func (s *Scavenger) Run(ctx context.Context, spider Spider) {
 	s.log.Info("scavenger", "running spider", "workers", s.cfg.parallelDownloads)
 
+	s.stateLock = sync.Mutex{}
 	s.itemjobs = make(chan item.Item)
 	s.reqjobs = make(chan reqJob)
 	s.wg = sync.WaitGroup{}

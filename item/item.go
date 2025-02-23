@@ -13,9 +13,11 @@ package item
 // For item pipelines that need to read generic information, it is better to export an interface that any
 // struct can implement. CastItem will find the first added struct that makes the type cast successful.
 //
-// Note: Item is supposed to be immutable, that means you should, under no circumstances, do something like
+// Notes:
 //
-//	item[0] = ...
+//   - Item is supposed to be immutable, that means you should not do something like: `item[0] = ...`
+//   - All values in an Item should be serializable with [encoding/gob], as that is the encoding used
+//     to store scraping state when pausing and resuming a scraping run.
 type Item []any
 
 // Add creates a new item with the value appended to its entries.
