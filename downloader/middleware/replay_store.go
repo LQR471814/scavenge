@@ -18,10 +18,10 @@ import (
 // ReplayStore is an abstract interface various cache storing mechanism can implement to be able to be
 // used in a Cache.
 type ReplayStore interface {
-	Has(ctx context.Context, id string) bool
+	Has(ctx context.Context, session, id string) bool
 	// Get should return nil if a stored request with the given id does not yet exist.
-	Get(ctx context.Context, id string) *downloader.Response
-	Set(ctx context.Context, id string, res *downloader.Response)
+	Get(ctx context.Context, session, id string) *downloader.Response
+	Set(ctx context.Context, session, id string, res *downloader.Response)
 }
 
 // MemoryReplayStore implements CacheStore with an in-memory [sync.Map]
@@ -35,8 +35,8 @@ func NewMemoryReplayStore() *MemoryReplayStore {
 	}
 }
 
-func (s *MemoryReplayStore) Get(ctx context.Context, id string) *downloader.Response {
-	v, ok := s.store.Load(id)
+func (s *MemoryReplayStore) Get(ctx context.Context, session, id string) *downloader.Response {
+	v, ok := s.store.Load(session + id)
 	if !ok {
 		return nil
 	}
@@ -44,16 +44,16 @@ func (s *MemoryReplayStore) Get(ctx context.Context, id string) *downloader.Resp
 	return res
 }
 
-func (s *MemoryReplayStore) Has(ctx context.Context, id string) bool {
-	_, ok := s.store.Load(id)
+func (s *MemoryReplayStore) Has(ctx context.Context, session, id string) bool {
+	_, ok := s.store.Load(session + id)
 	if !ok {
 		return false
 	}
 	return true
 }
 
-func (s *MemoryReplayStore) Set(ctx context.Context, id string, res *downloader.Response) {
-	s.store.Store(id, res)
+func (s *MemoryReplayStore) Set(ctx context.Context, session, id string, res *downloader.Response) {
+	s.store.Store(session+id, res)
 }
 
 type rawResponse struct {
@@ -83,24 +83,20 @@ type FSReplayStore struct {
 	dir string
 }
 
-func NewFSReplayStore(dir string) (FSReplayStore, error) {
-	err := os.MkdirAll(dir, 0666)
-	if err != nil {
-		return FSReplayStore{}, err
-	}
-	return FSReplayStore{dir: dir}, nil
+func NewFSReplayStore(dir string) FSReplayStore {
+	return FSReplayStore{dir: dir}
 }
 
-func (s FSReplayStore) filepath(id string) string {
+func (s FSReplayStore) filepath(session, id string) (dir string) {
 	filename := fmt.Sprint(xxh3.Hash([]byte(id)))
-	path := filepath.Join(s.dir, filename)
+	path := filepath.Join(s.dir, session, filename)
 	return path
 }
 
-func (s FSReplayStore) Get(ctx context.Context, id string) *downloader.Response {
+func (s FSReplayStore) Get(ctx context.Context, session, id string) *downloader.Response {
 	logger := scavenge.LoggerFromContext(ctx)
 
-	path := s.filepath(id)
+	path := s.filepath(session, id)
 	f, err := os.Open(path)
 	if os.IsNotExist(err) {
 		return nil
@@ -122,9 +118,9 @@ func (s FSReplayStore) Get(ctx context.Context, id string) *downloader.Response 
 	return rr.Response()
 }
 
-func (s FSReplayStore) Has(ctx context.Context, id string) bool {
+func (s FSReplayStore) Has(ctx context.Context, session, id string) bool {
 	logger := scavenge.LoggerFromContext(ctx)
-	path := s.filepath(id)
+	path := s.filepath(session, id)
 	_, err := os.Stat(path)
 	if os.IsNotExist(err) {
 		return false
@@ -136,10 +132,17 @@ func (s FSReplayStore) Has(ctx context.Context, id string) bool {
 	return true
 }
 
-func (s FSReplayStore) Set(ctx context.Context, id string, res *downloader.Response) {
+func (s FSReplayStore) Set(ctx context.Context, session, id string, res *downloader.Response) {
 	logger := scavenge.LoggerFromContext(ctx)
 
-	path := s.filepath(id)
+	dir := filepath.Join(s.dir, session)
+	err := os.MkdirAll(dir, 0666)
+	if err != nil {
+		logger.Error("fs_cache_store", "make session dir", "dir", dir, "err", err)
+		return
+	}
+
+	path := s.filepath(session, id)
 	f, err := os.Create(path)
 	if err != nil {
 		logger.Error("fs_cache_store", "open file for writing", "path", path, "err", err)

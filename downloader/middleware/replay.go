@@ -49,7 +49,7 @@ func (c Replay) HandleRequest(ctx context.Context, req *downloader.Request, meta
 		return nil, nil
 	}
 	id := c.storeId(key)
-	res := c.store.Get(ctx, id)
+	res := c.store.Get(ctx, c.sessionId, id)
 	if res == nil {
 		return nil, nil
 	}
@@ -66,6 +66,6 @@ func (c Replay) HandleResponse(
 	if !replay {
 		return nil
 	}
-	c.store.Set(ctx, c.storeId(key), res)
+	c.store.Set(ctx, c.sessionId, c.storeId(key), res)
 	return nil
 }
