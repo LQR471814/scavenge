@@ -279,8 +279,14 @@ func (s *Scavenger) saveState() {
 		}
 	}
 
+	s.log.Info(
+		"scavenger", "flushed state successfully",
+		"pending_requests", len(remaining.reqs),
+		"pending_items", len(remaining.items),
+	)
+
 	if s.cfg.stateStore == nil {
-		s.log.Info("scavenger", "shutdown successfully")
+		s.log.Info("scavenger", "shutdown successful")
 		return
 	}
 	w, err := s.cfg.stateStore.Store()
@@ -329,7 +335,8 @@ func (s *Scavenger) retryReqJob(ctx context.Context, reqjob reqJob) {
 		for {
 			select {
 			case <-ctx.Done():
-				s.wg.Done()
+				timer.Stop()
+				s.reqjobs <- reqjob
 				return
 			case <-timer.C:
 				timer.Stop()
@@ -382,8 +389,8 @@ func (s *Scavenger) Run(ctx context.Context, spider Spider) {
 		"item_workers", s.cfg.parallelItems,
 	)
 
-	s.itemjobs = make(chan item.Item)
-	s.reqjobs = make(chan reqJob)
+	s.itemjobs = make(chan item.Item, 256)
+	s.reqjobs = make(chan reqJob, 256)
 	s.wg = sync.WaitGroup{}
 
 	for range s.cfg.parallelDownloads {

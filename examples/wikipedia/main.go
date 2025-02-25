@@ -12,6 +12,7 @@ import (
 	"scavenge/item"
 	"scavenge/item/pipelines"
 	"strings"
+	"sync/atomic"
 	"syscall"
 
 	"github.com/PuerkitoBio/goquery"
@@ -28,7 +29,9 @@ type Page struct {
 }
 
 // WikipediaSpider contains all the logic for deriving structured data from wikipedia and making new requests.
-type WikipediaSpider struct{}
+type WikipediaSpider struct {
+	Count *atomic.Uint64
+}
 
 func (s WikipediaSpider) StartingRequests() []*downloader.Request {
 	return []*downloader.Request{
@@ -65,6 +68,7 @@ func (s WikipediaSpider) HandleResponse(nav scavenge.Navigator, res *downloader.
 		Overview: overview,
 		Sections: sections,
 	})
+	s.Count.Add(1)
 
 	for _, a := range doc.Find("a.mw-redirect").EachIter() {
 		nav.FollowAnchor(a.Nodes[0])
@@ -87,19 +91,21 @@ func main() {
 	))
 	logger := scavenge.NewSlogLogger(slogger, false)
 
+	count := atomic.Uint64{}
+
 	// creates a new downloader that wraps an http client in some middleware
 	dl := downloader.NewDownloader(
 		downloader.NewHttpClient(http.DefaultClient),
 
 		// middleware is evaluated from top to bottom for each request
 		middleware.NewAllowedDomains([]string{"en.wikipedia.org"}, nil), // only allow requests with host 'en.wikipedia.org'
-		middleware.NewDedupe(),       // drop duplicate GET requests with the same url
-		&MaxRequests{MaxCount: 1000}, // custom middleware we define to limit the amount of maximum # of requests to 100
+		middleware.NewDedupe(), // drop duplicate GET requests with the same url
 		middleware.NewReplay( // cache responses from wikipedia on the filesystem so we can replay them later (useful for debugging)
 			"default",
 			middleware.NewFSReplayStore("replay"),
 			middleware.ReplayGetRequests,
 		),
+		MaxRequests{MaxCount: 1000, Count: &count}, // custom middleware we define to limit the amount of maximum # of requests to 100
 		middleware.NewThrottle( // automatically throttle responses
 			middleware.NewAutoThrottle(),
 		),
@@ -123,5 +129,5 @@ func main() {
 
 	// run the scraper
 	scavenger := scavenge.NewScavenger(dl, iproc, logger)
-	scavenger.Run(ctx, WikipediaSpider{})
+	scavenger.Run(ctx, WikipediaSpider{Count: &count})
 }
