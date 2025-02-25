@@ -1,10 +1,8 @@
 package main
 
 import (
-	"bufio"
 	"context"
 	"encoding/gob"
-	"io"
 	"log/slog"
 	"net/http"
 	"os"
@@ -15,7 +13,6 @@ import (
 	"scavenge/item"
 	"scavenge/item/pipelines"
 	"strings"
-	"sync/atomic"
 	"syscall"
 
 	"github.com/PuerkitoBio/goquery"
@@ -30,9 +27,7 @@ type Page struct {
 }
 
 // WikipediaSpider contains all the logic for deriving structured data from wikipedia and making new requests.
-type WikipediaSpider struct {
-	Count *atomic.Uint64
-}
+type WikipediaSpider struct{}
 
 func (s WikipediaSpider) StartingRequests() []*downloader.Request {
 	return []*downloader.Request{
@@ -69,7 +64,6 @@ func (s WikipediaSpider) HandleResponse(nav scavenge.Navigator, res *downloader.
 		Overview: overview,
 		Sections: sections,
 	})
-	s.Count.Add(1)
 
 	for _, a := range doc.Find("a.mw-redirect").EachIter() {
 		nav.FollowAnchor(a.Nodes[0])
@@ -91,8 +85,6 @@ func main() {
 	// register item types so that encoding/gob can serialize items
 	gob.Register(Page{})
 
-	count := atomic.Uint64{}
-
 	// creates a new downloader that wraps an http client in some middleware
 	dl := downloader.NewDownloader(
 		downloader.NewHttpClient(http.DefaultClient),
@@ -105,7 +97,6 @@ func main() {
 			middleware.NewFSReplayStore("replay"),
 			middleware.ReplayGetRequests,
 		),
-		MaxRequests{MaxCount: 1000, Count: &count}, // custom middleware we define to limit the amount of maximum # of requests to 100
 		middleware.NewThrottle( // automatically throttle responses
 			middleware.NewAutoThrottle(),
 		),
@@ -118,29 +109,6 @@ func main() {
 
 	var out *os.File
 	if isResuming {
-		// read the number of pages already scraped (the # of lines in out.json)
-		// so we do not start from 0 pages scraped if resuming
-		f, err := os.OpenFile("out.json", os.O_RDONLY, 0644)
-		if err != nil {
-			logger.Error("main", "open output json file", "err", err)
-			os.Exit(1)
-		}
-		reader := bufio.NewReader(f)
-		var existingCount uint64
-		for {
-			_, err = reader.ReadString('\n')
-			existingCount++
-			if err == io.EOF {
-				break
-			}
-			if err != nil {
-				logger.Error("main", "read existing output lines", "err", err)
-				os.Exit(1)
-			}
-		}
-		f.Close()
-		count.Store(existingCount)
-
 		// don't truncate results if we are resuming scraping
 		out, err = os.OpenFile("out.json", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 	} else {
@@ -167,5 +135,5 @@ func main() {
 			scavenge.NewFileStateStore("state.bin"),
 		),
 	)
-	scavenger.Run(ctx, WikipediaSpider{Count: &count})
+	scavenger.Run(ctx, WikipediaSpider{})
 }

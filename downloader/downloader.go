@@ -33,7 +33,7 @@ func (d Downloader) Download(ctx context.Context, req *Request, meta RequestMeta
 	for _, mid := range d.middleware {
 		res, err := mid.HandleRequest(ctx, req, meta)
 		if err != nil {
-			return nil, fmt.Errorf("req middleware: %w", err)
+			return nil, err
 		}
 		if res != nil {
 			return res, nil
@@ -55,7 +55,7 @@ func (d Downloader) Download(ctx context.Context, req *Request, meta RequestMeta
 	for _, mid := range d.middleware {
 		err = mid.HandleResponse(ctx, res, resMeta)
 		if err != nil {
-			return nil, fmt.Errorf("resp middleware: %w", err)
+			return nil, err
 		}
 	}
 
