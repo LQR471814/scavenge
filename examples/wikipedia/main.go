@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"encoding/gob"
 	"log/slog"
 	"net/http"
 	"os"
@@ -81,9 +80,6 @@ func main() {
 		},
 	))
 	logger := scavenge.NewSlogLogger(slogger, false)
-
-	// register item types so that encoding/gob can serialize items
-	gob.Register(Page{})
 
 	// creates a new downloader that wraps an http client in some middleware
 	dl := downloader.NewDownloader(

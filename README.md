@@ -5,7 +5,7 @@
 ## Features
 
 - **Minimal footprint:** ~1k LOC with minimal reliance on third-party libraries.
-- **Batteries-included:** Domain whitelisting, automatic throttling, retries, pausing and resuming, replaying responses, etc... all included.
+- **Batteries-included:** Domain whitelisting, automatic throttling, retries, replaying responses, etc... all included.
 - **Flexible:** Near-full control over the details of scraping, but no need to concern yourself with the details if you don't need to.
 - **Extensible:** Easily add features you need with simple middleware interfaces.
 

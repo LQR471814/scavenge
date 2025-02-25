@@ -2,7 +2,6 @@ package scavenge
 
 import (
 	"context"
-	"encoding/gob"
 	"fmt"
 	"math"
 	"math/rand/v2"
@@ -38,7 +37,6 @@ type Scavenger struct {
 	reqjobs     chan reqJob
 	itemjobs    chan itemJob
 	wg          sync.WaitGroup
-	queued      atomic.Int64
 	quitWorkers atomic.Uint64
 }
 
@@ -226,39 +224,8 @@ func (s *Scavenger) handleItem(ctx context.Context, job itemJob) {
 	}
 }
 
-func (s *Scavenger) loadState() (resumed bool) {
-	if s.cfg.stateStore == nil {
-		return false
-	}
-	r, err := s.cfg.stateStore.Load()
-	if err != nil {
-		s.log.Error("scavenger", "load state: open store for reading", "err", err)
-		return false
-	}
-	if r == nil {
-		return false
-	}
-
-	decoder := gob.NewDecoder(r)
-	var remaining state
-	err = decoder.Decode(&remaining)
-	if err != nil {
-		s.log.Error("scavenger", "load state: decode state", "err", err)
-		return false
-	}
-
-	for _, job := range remaining.Reqs {
-		s.queueReqJob(job.Req, job.Referer)
-	}
-	for _, job := range remaining.Items {
-		s.queueItemJob(job.Item)
-	}
-
-	return len(remaining.Reqs) > 0 || len(remaining.Items) > 0
-}
-
 // this function can only be called if there is more than one on the waitgroup
-func (s *Scavenger) saveState() {
+func (s *Scavenger) flushState() {
 	totalWorkers := uint64(s.cfg.parallelDownloads) + uint64(s.cfg.parallelItems)
 
 	// wait until all the workers have exited to start flushing channels, we can be certain
@@ -267,56 +234,23 @@ func (s *Scavenger) saveState() {
 		return
 	}
 
-	s.wg.Add(1)
-	defer s.wg.Done()
+	close(s.reqjobs)
+	close(s.itemjobs)
 
-	s.log.Info("scavenger", "shutting down...")
+	s.log.Info("scavenger", "shutdown successful")
+}
 
-	var remaining state
-	for s.queued.Load() > 0 {
-		select {
-		case job := <-s.reqjobs:
-			s.wg.Done()
-			remaining.Reqs = append(remaining.Reqs, job)
-		case item := <-s.itemjobs:
-			s.wg.Done()
-			remaining.Items = append(remaining.Items, item)
-		default:
-		}
-	}
-
-	s.log.Info(
-		"scavenger", "flushed state successfully",
-		"pending_requests", len(remaining.Reqs),
-		"pending_items", len(remaining.Items),
-	)
-
-	if s.cfg.stateStore == nil {
-		s.log.Info("scavenger", "shutdown successful")
-		return
-	}
-	w, err := s.cfg.stateStore.Store()
+func (s *Scavenger) recoverAndCancelJob() {
+	err := recover()
 	if err != nil {
-		s.log.Error("scavenger", "save state: open store for writing", "err", err)
-		return
+		s.wg.Done()
 	}
-	defer w.Close()
-
-	encoder := gob.NewEncoder(w)
-	err = encoder.Encode(remaining)
-	if err != nil {
-		s.log.Error("scavenger", "save state: encode state", "err", err)
-		return
-	}
-
-	s.log.Info("scavenger", "state saved successfully")
 }
 
 func (s *Scavenger) queueReqJob(req *downloader.Request, referer *url.URL) {
 	s.wg.Add(1)
-	s.queued.Add(1)
 	go func() {
-		defer s.queued.Add(-1)
+		defer s.recoverAndCancelJob()
 
 		s.reqjobs <- reqJob{
 			Req:     req,
@@ -327,9 +261,9 @@ func (s *Scavenger) queueReqJob(req *downloader.Request, referer *url.URL) {
 
 func (s *Scavenger) queueItemJob(i item.Item) {
 	s.wg.Add(1)
-	s.queued.Add(1)
 	go func() {
-		defer s.queued.Add(-1)
+		defer s.recoverAndCancelJob()
+
 		s.itemjobs <- itemJob{Item: i}
 	}()
 }
@@ -349,21 +283,19 @@ func (s *Scavenger) retryDelay(attempt int) time.Duration {
 
 func (s *Scavenger) retryReqJob(ctx context.Context, job reqJob) {
 	s.wg.Add(1)
-	s.queued.Add(1)
 	go func() {
-		defer s.queued.Add(-1)
+		defer s.recoverAndCancelJob()
 
 		job.attempt++
 		timer := time.NewTimer(s.retryDelay(job.attempt))
+		defer timer.Stop()
 
 		for {
 			select {
 			case <-ctx.Done():
-				timer.Stop()
-				s.reqjobs <- job
+				s.wg.Done()
 				return
 			case <-timer.C:
-				timer.Stop()
 				s.reqjobs <- job
 				return
 			}
@@ -373,21 +305,19 @@ func (s *Scavenger) retryReqJob(ctx context.Context, job reqJob) {
 
 func (s *Scavenger) retryItemJob(ctx context.Context, job itemJob) {
 	s.wg.Add(1)
-	s.queued.Add(1)
 	go func() {
-		defer s.queued.Add(-1)
+		defer s.recoverAndCancelJob()
 
 		job.attempt++
 		timer := time.NewTimer(s.retryDelay(job.attempt))
+		defer timer.Stop()
 
 		for {
 			select {
 			case <-ctx.Done():
-				timer.Stop()
-				s.itemjobs <- job
+				s.wg.Done()
 				return
 			case <-timer.C:
-				timer.Stop()
 				s.itemjobs <- job
 				return
 			}
@@ -399,7 +329,7 @@ func (s *Scavenger) reqWorker(ctx context.Context, spider Spider) {
 	for {
 		select {
 		case <-ctx.Done():
-			s.saveState()
+			s.flushState()
 			return
 		case job := <-s.reqjobs:
 			s.handleRequest(ctx, spider, job)
@@ -411,7 +341,7 @@ func (s *Scavenger) itemWorker(ctx context.Context) {
 	for {
 		select {
 		case <-ctx.Done():
-			s.saveState()
+			s.flushState()
 			return
 		case item := <-s.itemjobs:
 			s.handleItem(ctx, item)
@@ -430,8 +360,8 @@ func (s *Scavenger) Run(ctx context.Context, spider Spider) {
 		"item_workers", s.cfg.parallelItems,
 	)
 
-	s.itemjobs = make(chan itemJob, 256)
-	s.reqjobs = make(chan reqJob, 256)
+	s.itemjobs = make(chan itemJob)
+	s.reqjobs = make(chan reqJob)
 	s.wg = sync.WaitGroup{}
 
 	for range s.cfg.parallelDownloads {
@@ -441,14 +371,9 @@ func (s *Scavenger) Run(ctx context.Context, spider Spider) {
 		go s.itemWorker(ctx)
 	}
 
-	resumed := s.loadState()
-	if resumed {
-		s.log.Info("scavenger", "resuming from saved state...")
-	} else {
-		requests := spider.StartingRequests()
-		for _, r := range requests {
-			s.queueReqJob(r, nil)
-		}
+	requests := spider.StartingRequests()
+	for _, r := range requests {
+		s.queueReqJob(r, nil)
 	}
 
 	s.wg.Wait()
