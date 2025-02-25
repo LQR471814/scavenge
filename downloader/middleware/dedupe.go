@@ -32,7 +32,7 @@ func (d *Dedupe) HandleRequest(ctx context.Context, req *downloader.Request, met
 	normalized := purell.NormalizeURL(req.Url, purell.FlagsSafe)
 	_, loaded := d.reqs.LoadOrStore(normalized, struct{}{})
 	if loaded {
-		return nil, downloader.DroppedRequest(fmt.Errorf("duplicate request: GET '%s'", normalized))
+		return nil, downloader.DroppedRequest(fmt.Errorf("duplicate request: GET %s", normalized))
 	}
 	return nil, nil
 }

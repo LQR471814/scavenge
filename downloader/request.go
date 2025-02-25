@@ -18,6 +18,8 @@ type Request struct {
 	//
 	// This should only be read from the final step in making the request, as it is not
 	// certain that the given [io.Reader] can be read from more than once.
+	//
+	// Requests with a non-nil DirectBody will be dropped when pausing and resuming scraping.
 	DirectBody io.Reader
 
 	// DirectResponse can be set to true to indicate that the response body should not be

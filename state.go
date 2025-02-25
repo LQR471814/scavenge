@@ -4,6 +4,7 @@ import (
 	"io"
 	"net/url"
 	"os"
+	"path/filepath"
 	"scavenge/downloader"
 	"scavenge/item"
 )
@@ -15,15 +16,22 @@ type reqJob struct {
 	attempt int
 }
 
-type state struct {
-	reqs  []reqJob
-	items []item.Item
+type itemJob struct {
+	Item    item.Item
+	attempt int
 }
 
+type state struct {
+	Reqs  []reqJob
+	Items []itemJob
+}
+
+// StateStore is an interface for reading/writing scraping state to some persistent storage.
+//
+// Scraping state itself is just a byteslice of an arbitrary length.
 type StateStore interface {
 	Load() (io.ReadCloser, error)
 	Store() (io.WriteCloser, error)
-	Delete() error
 }
 
 type FileStateStore struct {
@@ -37,9 +45,14 @@ func NewFileStateStore(path string) FileStateStore {
 }
 
 func (s FileStateStore) Load() (io.ReadCloser, error) {
-	return os.OpenFile(s.path, os.O_RDONLY, 0400)
+	f, err := os.OpenFile(s.path, os.O_RDONLY, 0400)
+	if os.IsNotExist(err) {
+		return nil, nil
+	}
+	return f, err
 }
 
 func (s FileStateStore) Store() (io.WriteCloser, error) {
-	return os.OpenFile(s.path, os.O_WRONLY, 0200)
+	os.MkdirAll(filepath.Dir(s.path), 0777)
+	return os.Create(s.path)
 }

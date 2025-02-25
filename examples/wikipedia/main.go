@@ -1,7 +1,10 @@
 package main
 
 import (
+	"bufio"
 	"context"
+	"encoding/gob"
+	"io"
 	"log/slog"
 	"net/http"
 	"os"
@@ -17,8 +20,6 @@ import (
 
 	"github.com/PuerkitoBio/goquery"
 	"github.com/lmittmann/tint"
-
-	_ "net/http/pprof"
 )
 
 // Page is the structured data we retrieve from scraping.
@@ -78,10 +79,6 @@ func (s WikipediaSpider) HandleResponse(nav scavenge.Navigator, res *downloader.
 }
 
 func main() {
-	go func() {
-		http.ListenAndServe("localhost:6060", nil)
-	}()
-
 	// pretty logging
 	slogger := slog.New(tint.NewHandler(
 		os.Stderr,
@@ -90,6 +87,9 @@ func main() {
 		},
 	))
 	logger := scavenge.NewSlogLogger(slogger, false)
+
+	// register item types so that encoding/gob can serialize items
+	gob.Register(Page{})
 
 	count := atomic.Uint64{}
 
@@ -113,12 +113,45 @@ func main() {
 
 	// the wikipedia pages we parse will be written to a file called `out.json`
 	// with the ExportJson item pipeline.
-	out, err := os.Create("out.json")
+	_, err := os.Stat("state.bin")
+	isResuming := err == nil
+
+	var out *os.File
+	if isResuming {
+		// read the number of pages already scraped (the # of lines in out.json)
+		// so we do not start from 0 pages scraped if resuming
+		f, err := os.OpenFile("out.json", os.O_RDONLY, 0644)
+		if err != nil {
+			logger.Error("main", "open output json file", "err", err)
+			os.Exit(1)
+		}
+		reader := bufio.NewReader(f)
+		var existingCount uint64
+		for {
+			_, err = reader.ReadString('\n')
+			existingCount++
+			if err == io.EOF {
+				break
+			}
+			if err != nil {
+				logger.Error("main", "read existing output lines", "err", err)
+				os.Exit(1)
+			}
+		}
+		f.Close()
+		count.Store(existingCount)
+
+		// don't truncate results if we are resuming scraping
+		out, err = os.OpenFile("out.json", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	} else {
+		out, err = os.Create("out.json")
+	}
 	if err != nil {
 		logger.Error("main", "open output json file", "err", err)
 		os.Exit(1)
 	}
 	defer out.Close()
+
 	iproc := item.NewProcessor(
 		pipelines.NewExportJson(out),
 	)
@@ -128,6 +161,11 @@ func main() {
 	defer cancel()
 
 	// run the scraper
-	scavenger := scavenge.NewScavenger(dl, iproc, logger)
+	scavenger := scavenge.NewScavenger(
+		dl, iproc, logger,
+		scavenge.WithStateStore(
+			scavenge.NewFileStateStore("state.bin"),
+		),
+	)
 	scavenger.Run(ctx, WikipediaSpider{Count: &count})
 }

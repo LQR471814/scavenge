@@ -27,7 +27,8 @@ type Spider interface {
 	HandleResponse(nav Navigator, res *downloader.Response) error
 }
 
-// Scavenger
+// Scavenger is the main component that schedules requests and processes items concurrently,
+// it handles retry logic and pausing/resuming scraping.
 type Scavenger struct {
 	cfg   config
 	log   Logger
@@ -35,7 +36,7 @@ type Scavenger struct {
 	iproc item.Processor
 
 	reqjobs     chan reqJob
-	itemjobs    chan item.Item
+	itemjobs    chan itemJob
 	wg          sync.WaitGroup
 	queued      atomic.Int64
 	quitWorkers atomic.Uint64
@@ -116,7 +117,6 @@ func WithOnItemProcessorFail(callback func(i item.Item, err error)) option {
 	}
 }
 
-// NewScavenger creates a new Scavenger.
 func NewScavenger(
 	dl downloader.Downloader,
 	items item.Processor,
@@ -127,6 +127,8 @@ func NewScavenger(
 	cfg := config{
 		parallelDownloads: defaultParDowns,
 		parallelItems:     runtime.NumCPU() - defaultParDowns,
+		minRetryDelay:     time.Second,
+		maxRetryDelay:     time.Hour,
 	}
 	for _, opt := range options {
 		opt(&cfg)
@@ -206,19 +208,20 @@ func (s *Scavenger) handleRequest(
 	}
 }
 
-func (s *Scavenger) handleItem(i item.Item) {
+func (s *Scavenger) handleItem(ctx context.Context, job itemJob) {
 	defer s.wg.Done()
 
-	_, err := s.iproc.Process(i)
+	_, err := s.iproc.Process(job.Item)
 	if err != nil {
 		s.log.Error(
 			"scavenger", "item processing failed",
-			"item", i,
+			"item", job.Item,
 			"err", err,
 		)
 		if s.cfg.iprocFailHandler != nil {
-			s.cfg.iprocFailHandler(i, err)
+			s.cfg.iprocFailHandler(job.Item, err)
 		}
+		s.retryItemJob(ctx, job)
 		return
 	}
 }
@@ -232,6 +235,9 @@ func (s *Scavenger) loadState() (resumed bool) {
 		s.log.Error("scavenger", "load state: open store for reading", "err", err)
 		return false
 	}
+	if r == nil {
+		return false
+	}
 
 	decoder := gob.NewDecoder(r)
 	var remaining state
@@ -241,14 +247,14 @@ func (s *Scavenger) loadState() (resumed bool) {
 		return false
 	}
 
-	for _, reqjob := range remaining.reqs {
-		s.queueReqJob(reqjob.Req, reqjob.Referer)
+	for _, job := range remaining.Reqs {
+		s.queueReqJob(job.Req, job.Referer)
 	}
-	for _, itemjob := range remaining.items {
-		s.queueItemJob(itemjob)
+	for _, job := range remaining.Items {
+		s.queueItemJob(job.Item)
 	}
 
-	return len(remaining.reqs) > 0 || len(remaining.items) > 0
+	return len(remaining.Reqs) > 0 || len(remaining.Items) > 0
 }
 
 // this function can only be called if there is more than one on the waitgroup
@@ -271,18 +277,18 @@ func (s *Scavenger) saveState() {
 		select {
 		case job := <-s.reqjobs:
 			s.wg.Done()
-			remaining.reqs = append(remaining.reqs, job)
+			remaining.Reqs = append(remaining.Reqs, job)
 		case item := <-s.itemjobs:
 			s.wg.Done()
-			remaining.items = append(remaining.items, item)
+			remaining.Items = append(remaining.Items, item)
 		default:
 		}
 	}
 
 	s.log.Info(
 		"scavenger", "flushed state successfully",
-		"pending_requests", len(remaining.reqs),
-		"pending_items", len(remaining.items),
+		"pending_requests", len(remaining.Reqs),
+		"pending_items", len(remaining.Items),
 	)
 
 	if s.cfg.stateStore == nil {
@@ -319,41 +325,73 @@ func (s *Scavenger) queueReqJob(req *downloader.Request, referer *url.URL) {
 	}()
 }
 
-func (s *Scavenger) retryReqJob(ctx context.Context, reqjob reqJob) {
+func (s *Scavenger) queueItemJob(i item.Item) {
+	s.wg.Add(1)
+	s.queued.Add(1)
+	go func() {
+		defer s.queued.Add(-1)
+		s.itemjobs <- itemJob{Item: i}
+	}()
+}
+
+func (s *Scavenger) retryDelay(attempt int) time.Duration {
+	seconds := int(math.Pow(2, float64(attempt)))
+	jitter := rand.IntN(seconds)
+	delay := time.Second * time.Duration(seconds+jitter)
+	if delay < s.cfg.minRetryDelay {
+		return s.cfg.minRetryDelay
+	}
+	if delay > s.cfg.maxRetryDelay {
+		return s.cfg.maxRetryDelay
+	}
+	return delay
+}
+
+func (s *Scavenger) retryReqJob(ctx context.Context, job reqJob) {
 	s.wg.Add(1)
 	s.queued.Add(1)
 	go func() {
 		defer s.queued.Add(-1)
 
-		reqjob.attempt++
-
-		seconds := int(math.Pow(2, float64(reqjob.attempt)))
-		jitter := rand.IntN(seconds)
-		delay := time.Second * time.Duration(seconds+jitter)
-		timer := time.NewTimer(delay)
+		job.attempt++
+		timer := time.NewTimer(s.retryDelay(job.attempt))
 
 		for {
 			select {
 			case <-ctx.Done():
 				timer.Stop()
-				s.reqjobs <- reqjob
+				s.reqjobs <- job
 				return
 			case <-timer.C:
 				timer.Stop()
-				s.reqjobs <- reqjob
+				s.reqjobs <- job
 				return
 			}
 		}
 	}()
 }
 
-func (s *Scavenger) queueItemJob(i item.Item) {
+func (s *Scavenger) retryItemJob(ctx context.Context, job itemJob) {
 	s.wg.Add(1)
 	s.queued.Add(1)
 	go func() {
 		defer s.queued.Add(-1)
 
-		s.itemjobs <- i
+		job.attempt++
+		timer := time.NewTimer(s.retryDelay(job.attempt))
+
+		for {
+			select {
+			case <-ctx.Done():
+				timer.Stop()
+				s.itemjobs <- job
+				return
+			case <-timer.C:
+				timer.Stop()
+				s.itemjobs <- job
+				return
+			}
+		}
 	}()
 }
 
@@ -376,12 +414,15 @@ func (s *Scavenger) itemWorker(ctx context.Context) {
 			s.saveState()
 			return
 		case item := <-s.itemjobs:
-			s.handleItem(item)
+			s.handleItem(ctx, item)
 		}
 	}
 }
 
-// Run runs the given spider on the scavenger, this should not be run concurrently.
+// Run runs the given spider on the scavenger.
+//
+// Note:
+//   - Run is not concurrency-safe, it should only be executed one-at-a-time for a given Scavenger.
 func (s *Scavenger) Run(ctx context.Context, spider Spider) {
 	s.log.Info(
 		"scavenger", "running spider",
@@ -389,7 +430,7 @@ func (s *Scavenger) Run(ctx context.Context, spider Spider) {
 		"item_workers", s.cfg.parallelItems,
 	)
 
-	s.itemjobs = make(chan item.Item, 256)
+	s.itemjobs = make(chan itemJob, 256)
 	s.reqjobs = make(chan reqJob, 256)
 	s.wg = sync.WaitGroup{}
 

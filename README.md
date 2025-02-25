@@ -5,13 +5,13 @@
 ## Features
 
 - **Minimal footprint:** ~1k LOC with minimal reliance on third-party libraries.
-- **Batteries-included:** Domain whitelisting, automatic throttling, replaying responses, etc... all included.
+- **Batteries-included:** Domain whitelisting, automatic throttling, retries, pausing and resuming, replaying responses, etc... all included.
 - **Flexible:** Near-full control over the details of scraping, but no need to concern yourself with the details if you don't need to.
 - **Extensible:** Easily add features you need with simple middleware interfaces.
 
 ## Example
 
-Here's an [example](./examples/wikipedia) that scrapes 1000 wikipedia pages in ~10 seconds.
+Here's an [example](./examples/wikipedia) that scrapes ~1000 wikipedia pages in ~20 seconds.
 
 To run it:
 
