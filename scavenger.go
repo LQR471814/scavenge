@@ -7,12 +7,13 @@ import (
 	"math/rand/v2"
 	"net/url"
 	"runtime"
-	"scavenge/downloader"
-	"scavenge/item"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/LQR471814/scavenge/downloader"
+	"github.com/LQR471814/scavenge/item"
 )
 
 // Spider contains the business logic of navigating to different links and storing structured data from

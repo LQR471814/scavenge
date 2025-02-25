@@ -5,8 +5,9 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
-	"scavenge/downloader"
-	"scavenge/item"
+
+	"github.com/LQR471814/scavenge/downloader"
+	"github.com/LQR471814/scavenge/item"
 )
 
 type reqJob struct {

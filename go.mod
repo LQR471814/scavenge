@@ -1,4 +1,4 @@
-module scavenge
+module github.com/LQR471814/scavenge
 
 go 1.23.4
 

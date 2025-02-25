@@ -5,7 +5,8 @@ import (
 	"fmt"
 	"net/http"
 	"scavenge"
-	"scavenge/downloader"
+
+	"github.com/LQR471814/scavenge/downloader"
 
 	"github.com/PuerkitoBio/purell"
 )

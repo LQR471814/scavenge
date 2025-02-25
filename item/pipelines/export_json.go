@@ -3,7 +3,8 @@ package pipelines
 import (
 	"encoding/json"
 	"io"
-	"scavenge/item"
+
+	"github.com/LQR471814/scavenge/item"
 )
 
 // ExportJson is an item pipeline that exports items in a json format to the specified io.Writer.

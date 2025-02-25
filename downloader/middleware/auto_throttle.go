@@ -4,9 +4,10 @@ import (
 	"context"
 	"fmt"
 	"runtime"
-	"scavenge/downloader"
 	"sync"
 	"time"
+
+	"github.com/LQR471814/scavenge/downloader"
 )
 
 // ThrottleHandler

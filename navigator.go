@@ -5,8 +5,9 @@ import (
 	"context"
 	"fmt"
 	"net/url"
-	"scavenge/downloader"
-	"scavenge/item"
+
+	"github.com/LQR471814/scavenge/downloader"
+	"github.com/LQR471814/scavenge/item"
 
 	"golang.org/x/net/html"
 )

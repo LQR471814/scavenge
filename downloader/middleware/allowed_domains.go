@@ -3,7 +3,8 @@ package middleware
 import (
 	"context"
 	"fmt"
-	"scavenge/downloader"
+
+	"github.com/LQR471814/scavenge/downloader"
 
 	"github.com/gobwas/glob"
 )

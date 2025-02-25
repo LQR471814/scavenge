@@ -3,7 +3,8 @@ package middleware
 import (
 	"context"
 	"net/http"
-	"scavenge/downloader"
+
+	"github.com/LQR471814/scavenge/downloader"
 )
 
 // Headers overrides the given headers with the given header values in each request.

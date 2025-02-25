@@ -4,8 +4,9 @@ import (
 	"context"
 	"net/http"
 	"net/http/cookiejar"
-	"scavenge"
-	"scavenge/downloader"
+
+	"github.com/LQR471814/scavenge"
+	"github.com/LQR471814/scavenge/downloader"
 )
 
 // Cookies persists cookies across requests.

@@ -9,8 +9,9 @@ import (
 	"os"
 	"path/filepath"
 	"scavenge"
-	"scavenge/downloader"
 	"sync"
+
+	"github.com/LQR471814/scavenge/downloader"
 
 	"github.com/zeebo/xxh3"
 )
