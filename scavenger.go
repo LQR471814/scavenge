@@ -12,6 +12,7 @@ import (
 	"scavenge/item"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -33,10 +34,11 @@ type Scavenger struct {
 	dl    downloader.Downloader
 	iproc item.Processor
 
-	reqjobs   chan reqJob
-	itemjobs  chan item.Item
-	wg        sync.WaitGroup
-	stateLock sync.Mutex
+	reqjobs     chan reqJob
+	itemjobs    chan item.Item
+	wg          sync.WaitGroup
+	queued      atomic.Int64
+	quitWorkers atomic.Uint64
 }
 
 type config struct {
@@ -159,7 +161,7 @@ func (s *Scavenger) handleRequest(
 	})
 	if err != nil {
 		if strings.Contains(err.Error(), "dropped request:") {
-			s.log.Warn(
+			s.log.Info(
 				"scavenger", "dropped request",
 				"url", ShortUrl(job.Req.Url),
 				"referer", ShortUrl(job.Referer),
@@ -179,11 +181,12 @@ func (s *Scavenger) handleRequest(
 		if s.cfg.reqFailHandler != nil {
 			s.cfg.reqFailHandler(job.Req, err)
 		}
-		go s.retryReqJob(job)
+		s.retryReqJob(ctx, job)
 		return
 	}
 
 	err = spider.HandleResponse(Navigator{
+		context:    ctx,
 		scavenger:  s,
 		currentUrl: res.Url(),
 	}, res)
@@ -199,7 +202,7 @@ func (s *Scavenger) handleRequest(
 		if s.cfg.spiderFailHandler != nil {
 			s.cfg.spiderFailHandler(res, err)
 		}
-		go s.retryReqJob(job)
+		s.retryReqJob(ctx, job)
 	}
 }
 
@@ -226,7 +229,7 @@ func (s *Scavenger) loadState() (resumed bool) {
 	}
 	r, err := s.cfg.stateStore.Load()
 	if err != nil {
-		s.log.Error("scavenge", "load state: open store for reading", "err", err)
+		s.log.Error("scavenger", "load state: open store for reading", "err", err)
 		return false
 	}
 
@@ -234,7 +237,7 @@ func (s *Scavenger) loadState() (resumed bool) {
 	var remaining state
 	err = decoder.Decode(&remaining)
 	if err != nil {
-		s.log.Error("scavenge", "load state: decode state", "err", err)
+		s.log.Error("scavenger", "load state: decode state", "err", err)
 		return false
 	}
 
@@ -248,39 +251,41 @@ func (s *Scavenger) loadState() (resumed bool) {
 	return len(remaining.reqs) > 0 || len(remaining.items) > 0
 }
 
+// this function can only be called if there is more than one on the waitgroup
 func (s *Scavenger) saveState() {
-	if !s.stateLock.TryLock() {
+	totalWorkers := uint64(s.cfg.parallelDownloads) + uint64(s.cfg.parallelItems)
+
+	// wait until all the workers have exited to start flushing channels, we can be certain
+	// that all writes to channels at this point have been blocked
+	if s.quitWorkers.Add(1) < totalWorkers {
 		return
 	}
-	if s.cfg.stateStore == nil {
-		return
-	}
+
+	s.wg.Add(1)
+	defer s.wg.Done()
+
+	s.log.Info("scavenger", "shutting down...")
 
 	var remaining state
-
-req:
-	for {
+	for s.queued.Load() > 0 {
 		select {
 		case job := <-s.reqjobs:
+			s.wg.Done()
 			remaining.reqs = append(remaining.reqs, job)
+		case item := <-s.itemjobs:
+			s.wg.Done()
+			remaining.items = append(remaining.items, item)
 		default:
-			break req
 		}
 	}
 
-item:
-	for {
-		select {
-		case job := <-s.itemjobs:
-			remaining.items = append(remaining.items, job)
-		default:
-			break item
-		}
+	if s.cfg.stateStore == nil {
+		s.log.Info("scavenger", "shutdown successfully")
+		return
 	}
-
 	w, err := s.cfg.stateStore.Store()
 	if err != nil {
-		s.log.Error("scavenge", "save state: open store for writing", "err", err)
+		s.log.Error("scavenger", "save state: open store for writing", "err", err)
 		return
 	}
 	defer w.Close()
@@ -288,31 +293,61 @@ item:
 	encoder := gob.NewEncoder(w)
 	err = encoder.Encode(remaining)
 	if err != nil {
-		s.log.Error("scavenge", "save state: encode state", "err", err)
+		s.log.Error("scavenger", "save state: encode state", "err", err)
 		return
 	}
+
+	s.log.Info("scavenger", "state saved successfully")
 }
 
 func (s *Scavenger) queueReqJob(req *downloader.Request, referer *url.URL) {
 	s.wg.Add(1)
-	s.reqjobs <- reqJob{
-		Req:     req,
-		Referer: referer,
-	}
+	s.queued.Add(1)
+	go func() {
+		defer s.queued.Add(-1)
+
+		s.reqjobs <- reqJob{
+			Req:     req,
+			Referer: referer,
+		}
+	}()
 }
 
-func (s *Scavenger) retryReqJob(reqjob reqJob) {
-	seconds := int(math.Pow(2, float64(reqjob.attempt)))
-	jitter := rand.IntN(seconds)
-	time.Sleep(time.Second * time.Duration(seconds+jitter))
+func (s *Scavenger) retryReqJob(ctx context.Context, reqjob reqJob) {
 	s.wg.Add(1)
-	reqjob.attempt++
-	s.reqjobs <- reqjob
+	s.queued.Add(1)
+	go func() {
+		defer s.queued.Add(-1)
+
+		reqjob.attempt++
+
+		seconds := int(math.Pow(2, float64(reqjob.attempt)))
+		jitter := rand.IntN(seconds)
+		delay := time.Second * time.Duration(seconds+jitter)
+		timer := time.NewTimer(delay)
+
+		for {
+			select {
+			case <-ctx.Done():
+				s.wg.Done()
+				return
+			case <-timer.C:
+				timer.Stop()
+				s.reqjobs <- reqjob
+				return
+			}
+		}
+	}()
 }
 
 func (s *Scavenger) queueItemJob(i item.Item) {
 	s.wg.Add(1)
-	s.itemjobs <- i
+	s.queued.Add(1)
+	go func() {
+		defer s.queued.Add(-1)
+
+		s.itemjobs <- i
+	}()
 }
 
 func (s *Scavenger) reqWorker(ctx context.Context, spider Spider) {
@@ -347,7 +382,6 @@ func (s *Scavenger) Run(ctx context.Context, spider Spider) {
 		"item_workers", s.cfg.parallelItems,
 	)
 
-	s.stateLock = sync.Mutex{}
 	s.itemjobs = make(chan item.Item)
 	s.reqjobs = make(chan reqJob)
 	s.wg = sync.WaitGroup{}

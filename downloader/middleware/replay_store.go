@@ -102,7 +102,7 @@ func (s FSReplayStore) Get(ctx context.Context, session, id string) *downloader.
 		return nil
 	}
 	if err != nil {
-		logger.Error("fs_cache_store", "open file", "path", path, "err", err)
+		logger.Warn("fs_cache_store", "open file", "path", path, "err", err)
 		return nil
 	}
 	defer f.Close()
@@ -111,7 +111,7 @@ func (s FSReplayStore) Get(ctx context.Context, session, id string) *downloader.
 	rr := rawResponse{}
 	err = decoder.Decode(&rr)
 	if err != nil {
-		logger.Error("fs_cache_store", "decode response", "path", path, "err", err)
+		logger.Warn("fs_cache_store", "decode response", "path", path, "err", err)
 		return nil
 	}
 
@@ -126,7 +126,7 @@ func (s FSReplayStore) Has(ctx context.Context, session, id string) bool {
 		return false
 	}
 	if err != nil {
-		logger.Error("fs_cache_store", "stat file", "path", path, "err", err)
+		logger.Warn("fs_cache_store", "stat file", "path", path, "err", err)
 		return false
 	}
 	return true
@@ -136,16 +136,16 @@ func (s FSReplayStore) Set(ctx context.Context, session, id string, res *downloa
 	logger := scavenge.LoggerFromContext(ctx)
 
 	dir := filepath.Join(s.dir, session)
-	err := os.MkdirAll(dir, 0666)
+	err := os.MkdirAll(dir, 0777)
 	if err != nil {
-		logger.Error("fs_cache_store", "make session dir", "dir", dir, "err", err)
+		logger.Warn("fs_cache_store", "make session dir", "dir", dir, "err", err)
 		return
 	}
 
 	path := s.filepath(session, id)
 	f, err := os.Create(path)
 	if err != nil {
-		logger.Error("fs_cache_store", "open file for writing", "path", path, "err", err)
+		logger.Warn("fs_cache_store", "open file for writing", "path", path, "err", err)
 		return
 	}
 	defer f.Close()
@@ -153,6 +153,6 @@ func (s FSReplayStore) Set(ctx context.Context, session, id string, res *downloa
 	encoder := gob.NewEncoder(f)
 	err = encoder.Encode(newRawResponse(res))
 	if err != nil {
-		logger.Error("fs_cache_store", "encode response", "path", path, "err", err)
+		logger.Warn("fs_cache_store", "encode response", "path", path, "err", err)
 	}
 }

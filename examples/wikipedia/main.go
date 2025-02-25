@@ -16,6 +16,8 @@ import (
 
 	"github.com/PuerkitoBio/goquery"
 	"github.com/lmittmann/tint"
+
+	_ "net/http/pprof"
 )
 
 // Page is the structured data we retrieve from scraping.
@@ -72,6 +74,10 @@ func (s WikipediaSpider) HandleResponse(nav scavenge.Navigator, res *downloader.
 }
 
 func main() {
+	go func() {
+		http.ListenAndServe("localhost:6060", nil)
+	}()
+
 	// pretty logging
 	slogger := slog.New(tint.NewHandler(
 		os.Stderr,
@@ -80,13 +86,6 @@ func main() {
 		},
 	))
 	logger := scavenge.NewSlogLogger(slogger, false)
-
-	// this allows you to store responses on the filesystem and "replay" them back later
-	replayStore, err := middleware.NewFSReplayStore("replay")
-	if err != nil {
-		logger.Error("main", "create fs replay store", "err", err)
-		os.Exit(1)
-	}
 
 	// creates a new downloader that wraps an http client in some middleware
 	dl := downloader.NewDownloader(
@@ -98,7 +97,7 @@ func main() {
 		&MaxRequests{MaxCount: 1000}, // custom middleware we define to limit the amount of maximum # of requests to 100
 		middleware.NewReplay( // cache responses from wikipedia on the filesystem so we can replay them later (useful for debugging)
 			"default",
-			replayStore,
+			middleware.NewFSReplayStore("replay"),
 			middleware.ReplayGetRequests,
 		),
 		middleware.NewThrottle( // automatically throttle responses

@@ -2,6 +2,7 @@ package scavenge
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"net/url"
 	"scavenge/downloader"
@@ -13,20 +14,25 @@ import (
 // Navigator contains methods for saving items and following urls typically used in a
 // spider's response handler.
 type Navigator struct {
+	context    context.Context
 	scavenger  *Scavenger
 	currentUrl *url.URL
 }
 
+func (n Navigator) Context() context.Context {
+	return n.context
+}
+
 func (n Navigator) SaveItem(value any) {
-	go n.scavenger.queueItemJob(item.Item{value})
+	n.scavenger.queueItemJob(item.Item{value})
 }
 
 func (n Navigator) Request(req *downloader.Request) {
-	go n.scavenger.queueReqJob(req, n.currentUrl)
+	n.scavenger.queueReqJob(req, n.currentUrl)
 }
 
 func (n Navigator) FollowUrl(u *url.URL) {
-	go n.scavenger.queueReqJob(downloader.GETRequest(u), n.currentUrl)
+	n.scavenger.queueReqJob(downloader.GETRequest(u), n.currentUrl)
 }
 
 func (n Navigator) FollowAnchor(a *html.Node) error {
@@ -59,7 +65,7 @@ func (n Navigator) FollowAnchor(a *html.Node) error {
 	}
 	abs := n.currentUrl.ResolveReference(ref)
 
-	go n.scavenger.queueReqJob(downloader.GETRequest(abs), n.currentUrl)
+	n.scavenger.queueReqJob(downloader.GETRequest(abs), n.currentUrl)
 
 	return nil
 }

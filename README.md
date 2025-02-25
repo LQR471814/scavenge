@@ -9,6 +9,17 @@
 - **Flexible:** Near-full control over the details of scraping, but no need to concern yourself with the details if you don't need to.
 - **Extensible:** Easily add features you need with simple middleware interfaces.
 
+## Example
+
+Here's an [example](./examples/wikipedia) that scrapes 1000 wikipedia pages in ~10 seconds.
+
+To run it:
+
+```sh
+cd examples/wikipedia
+go run .
+```
+
 ## Dependencies
 
 - `golang.org/x/net` - Used in `downloader.Response`.
