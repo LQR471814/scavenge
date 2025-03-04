@@ -8,9 +8,9 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
-	"scavenge"
 	"sync"
 
+	"github.com/LQR471814/scavenge"
 	"github.com/LQR471814/scavenge/downloader"
 
 	"github.com/zeebo/xxh3"

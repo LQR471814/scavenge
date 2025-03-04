@@ -4,8 +4,8 @@ import (
 	"context"
 	"fmt"
 	"net/http"
-	"scavenge"
 
+	"github.com/LQR471814/scavenge"
 	"github.com/LQR471814/scavenge/downloader"
 
 	"github.com/PuerkitoBio/purell"
