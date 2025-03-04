@@ -20,22 +20,30 @@ type Navigator struct {
 	currentUrl *url.URL
 }
 
+// Context returns the scraping context.
 func (n Navigator) Context() context.Context {
 	return n.context
 }
 
+// SaveItem queues the given item for processing.
 func (n Navigator) SaveItem(value any) {
-	n.scavenger.queueItemJob(item.Item{value})
+	n.scavenger.QueueItem(item.Item{value})
 }
 
+// Request queues the given request.
 func (n Navigator) Request(req *downloader.Request) {
-	n.scavenger.queueReqJob(req, n.currentUrl)
+	n.scavenger.QueueRequest(req, n.currentUrl)
 }
 
+// FollowUrl queues a GET request to the given url with the current url as the referer.
+//
+// Note: This will not resolve the given url with the current url as the base url.
 func (n Navigator) FollowUrl(u *url.URL) {
-	n.scavenger.queueReqJob(downloader.GETRequest(u), n.currentUrl)
+	n.scavenger.QueueRequest(downloader.GETRequest(u), n.currentUrl)
 }
 
+// FollowAnchor queues a GET request to the given url created by resolving the href of the
+// given a-tag with the current url as the base url.
 func (n Navigator) FollowAnchor(a *html.Node) error {
 	if a.Data != "a" || a.Type != html.ElementNode {
 		return fmt.Errorf("follow anchor: given html node '%s' (type: %d) was not an <a> tag", a.Data, a.Type)
@@ -66,7 +74,7 @@ func (n Navigator) FollowAnchor(a *html.Node) error {
 	}
 	abs := n.currentUrl.ResolveReference(ref)
 
-	n.scavenger.queueReqJob(downloader.GETRequest(abs), n.currentUrl)
+	n.scavenger.QueueRequest(downloader.GETRequest(abs), n.currentUrl)
 
 	return nil
 }

@@ -153,8 +153,6 @@ func (s *Scavenger) handleRequest(
 		"attempt", job.attempt,
 	)
 
-	ctx = setLogCtx(ctx, s.log)
-
 	res, err := s.dl.Download(ctx, job.Req, downloader.RequestMetadata{
 		AttemptNo: job.attempt,
 		Referer:   job.Referer,
@@ -247,7 +245,7 @@ func (s *Scavenger) recoverAndCancelJob() {
 	}
 }
 
-func (s *Scavenger) queueReqJob(req *downloader.Request, referer *url.URL) {
+func (s *Scavenger) QueueRequest(req *downloader.Request, referer *url.URL) {
 	s.wg.Add(1)
 	go func() {
 		defer s.recoverAndCancelJob()
@@ -259,7 +257,7 @@ func (s *Scavenger) queueReqJob(req *downloader.Request, referer *url.URL) {
 	}()
 }
 
-func (s *Scavenger) queueItemJob(i item.Item) {
+func (s *Scavenger) QueueItem(i item.Item) {
 	s.wg.Add(1)
 	go func() {
 		defer s.recoverAndCancelJob()
@@ -360,6 +358,9 @@ func (s *Scavenger) Run(ctx context.Context, spider Spider) {
 		"item_workers", s.cfg.parallelItems,
 	)
 
+	ctx = setScavengerCtx(ctx, s)
+	ctx = setLogCtx(ctx, s.log)
+
 	s.itemjobs = make(chan itemJob)
 	s.reqjobs = make(chan reqJob)
 	s.wg = sync.WaitGroup{}
@@ -373,8 +374,23 @@ func (s *Scavenger) Run(ctx context.Context, spider Spider) {
 
 	requests := spider.StartingRequests()
 	for _, r := range requests {
-		s.queueReqJob(r, nil)
+		s.QueueRequest(r, nil)
 	}
 
 	s.wg.Wait()
+}
+
+type scavengerCtxKeyType int
+
+var scavengerCtxKey scavengerCtxKeyType
+
+func setScavengerCtx(ctx context.Context, scavenger *Scavenger) context.Context {
+	return context.WithValue(ctx, scavengerCtxKey, scavenger)
+}
+
+// ScavengerFromContext returns Scavenger from a given context.
+//
+// This will only return a scavenger if called within a spider's HandleResponse, item pipeline, or middleware.
+func ScavengerFromContext(ctx context.Context) *Scavenger {
+	return ctx.Value(scavengerCtxKey).(*Scavenger)
 }
