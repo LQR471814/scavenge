@@ -4,6 +4,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"reflect"
 )
 
 // Request represents a standard HTTP request.
@@ -25,6 +26,10 @@ type Request struct {
 	// DirectResponse can be set to true to indicate that the response body should not be
 	// read into a byteslice but remain an [io.Reader] for direct usage.
 	DirectResponse bool
+
+	// Meta is a list of any structs containing metadata for the request. It functions in the same
+	// way as [item.Item]
+	Meta []any
 }
 
 // SetHeader sets an http header on the request.
@@ -83,6 +88,37 @@ func (r *Request) SetBodyMultipartForm(contents []byte) {
 func (r *Request) SetBodyJSON(json string) {
 	r.SetContentType("application/json")
 	r.Body = []byte(json)
+}
+
+// AddMeta adds a struct to the metadata of the request.
+func (r *Request) AddMeta(value any) {
+	r.Meta = append(r.Meta, value)
+}
+
+// GetRequestMeta finds the first value with type T according to the same rules as [item.CastItem]
+func GetRequestMeta[T any](r *Request) (T, bool) {
+	var tmp T
+
+	// cannot directly use TypeOf(tmp) since tmp may be a nil interface which will cause reflect.TypeOf to return nil
+	if reflect.TypeOf((*T)(nil)).Elem().Kind() == reflect.Interface {
+		for _, e := range r.Meta {
+			cast, ok := e.(T)
+			if ok {
+				return cast, true
+			}
+		}
+		return tmp, false
+	}
+
+	// in contrast, if tmp is certainly not an interface, TypeOf(tmp) will always return the type
+	// even if tmp is nil
+	t := reflect.TypeOf(tmp)
+	for _, e := range r.Meta {
+		if reflect.TypeOf(e) == t {
+			return e.(T), true
+		}
+	}
+	return tmp, false
 }
 
 // MustParseUrl attempts to the parse the given rawUrl into a [*url.URL]

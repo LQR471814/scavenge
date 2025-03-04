@@ -1,5 +1,7 @@
 package item
 
+import "reflect"
+
 // Item represents some information retrieved by a spider that may or may not have gone through processing
 // in item pipelines.
 //
@@ -33,14 +35,31 @@ func (i Item) Entries() []any {
 	return out
 }
 
-// CastItem finds the first struct in the item's entries that can be cast to the generic type given.
+// CastItem finds the first struct based on the following behavior:
+//
+//   - If the given type, T is an interface, find the first value that fulfills its interface.
+//   - If the given type, T is a concrete type, find the first value that has exactly the same tyep as T.
 func CastItem[T any](i Item) (T, bool) {
+	var tmp T
+
+	// cannot directly use TypeOf(tmp) since tmp may be a nil interface which will cause reflect.TypeOf to return nil
+	if reflect.TypeOf((*T)(nil)).Elem().Kind() == reflect.Interface {
+		for _, e := range i {
+			cast, ok := e.(T)
+			if ok {
+				return cast, true
+			}
+		}
+		return tmp, false
+	}
+
+	// in contrast, if tmp is certainly not an interface, TypeOf(tmp) will always return the type
+	// even if tmp is nil
+	t := reflect.TypeOf(tmp)
 	for _, e := range i {
-		cast, ok := e.(T)
-		if ok {
-			return cast, true
+		if reflect.TypeOf(e) == t {
+			return e.(T), true
 		}
 	}
-	var tmp T
 	return tmp, false
 }
