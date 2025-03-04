@@ -133,10 +133,9 @@ func NewScavenger(
 		opt(&cfg)
 	}
 	return &Scavenger{
-		cfg:   cfg,
-		log:   logger,
-		dl:    dl,
-		iproc: items,
+		cfg: cfg,
+		log: logger,
+		dl:  dl,
 	}
 }
 
@@ -210,7 +209,7 @@ func (s *Scavenger) handleRequest(
 func (s *Scavenger) handleItem(ctx context.Context, job itemJob) {
 	defer s.wg.Done()
 
-	_, err := s.iproc.Process(job.Item)
+	_, err := s.iproc.Process(ctx, job.Item)
 	if err != nil {
 		s.log.Error(
 			"scavenger", "item processing failed",

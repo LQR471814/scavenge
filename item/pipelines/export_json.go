@@ -1,6 +1,7 @@
 package pipelines
 
 import (
+	"context"
 	"encoding/json"
 	"io"
 
@@ -13,10 +14,12 @@ type ExportJson struct {
 }
 
 func NewExportJson(output io.Writer) ExportJson {
-	return ExportJson{output: output}
+	return ExportJson{
+		output: output,
+	}
 }
 
-func (e ExportJson) HandleItem(item item.Item) (item.Item, error) {
+func (e ExportJson) HandleItem(ctx context.Context, item item.Item) (item.Item, error) {
 	marshalled, err := json.Marshal(item)
 	if err != nil {
 		return nil, err

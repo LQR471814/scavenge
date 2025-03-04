@@ -7,19 +7,6 @@ import (
 	"time"
 )
 
-type downloaderCtxKeyType int
-
-var downloaderCtxKey downloaderCtxKeyType
-
-func setDownloaderCtx(ctx context.Context, dl Downloader) context.Context {
-	return context.WithValue(ctx, downloaderCtxKey, dl)
-}
-
-// DownloaderFromContext returns the Downloader from a given context.
-func DownloaderFromContext(ctx context.Context) Downloader {
-	return ctx.Value(downloaderCtxKey).(Downloader)
-}
-
 // RequestMetadata represents additional information that may be useful to middleware.
 type RequestMetadata struct {
 	Referer   *url.URL
