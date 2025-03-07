@@ -1,8 +1,8 @@
 # scavenge
 
-[![Go Reference](https://pkg.go.dev/badge/github.com/LQR471814/scavenge.svg)](https://pkg.go.dev/github.com/LQR471814/scavenge)
-
 > A modern, batteries-included, modular scraping framework for Go.
+
+[![Go Reference](https://pkg.go.dev/badge/github.com/LQR471814/scavenge.svg)](https://pkg.go.dev/github.com/LQR471814/scavenge)
 
 ## Features
 
