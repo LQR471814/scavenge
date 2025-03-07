@@ -4,6 +4,12 @@
 
 [![Go Reference](https://pkg.go.dev/badge/github.com/LQR471814/scavenge.svg)](https://pkg.go.dev/github.com/LQR471814/scavenge)
 
+## Installation
+
+```sh
+go get github.com/LQR471814/scavenge
+```
+
 ## Features
 
 - **Minimal footprint:** ~1k LOC with minimal reliance on third-party libraries.
