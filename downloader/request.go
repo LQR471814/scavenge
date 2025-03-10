@@ -7,7 +7,7 @@ import (
 	"reflect"
 )
 
-// Request represents a standard HTTP request.
+// Request represents a standard HTTP request. It is not concurrency-safe.
 type Request struct {
 	Method  string
 	Url     *url.URL
@@ -27,9 +27,7 @@ type Request struct {
 	// read into a byteslice but remain an [io.Reader] for direct usage.
 	DirectResponse bool
 
-	// Meta is a list of any structs containing metadata for the request. It functions in the same
-	// way as [item.Item]
-	Meta []any
+	meta []any
 }
 
 // SetHeader sets an http header on the request.
@@ -90,9 +88,14 @@ func (r *Request) SetBodyJSON(json string) {
 	r.Body = []byte(json)
 }
 
+// Meta returns the request metadata (not cloned).
+func (r *Request) Meta() []any {
+	return r.meta
+}
+
 // AddMeta adds a struct to the metadata of the request.
 func (r *Request) AddMeta(value any) {
-	r.Meta = append(r.Meta, value)
+	r.meta = append(r.meta, value)
 }
 
 // GetRequestMeta finds the first value with type T according to the same rules as [item.CastItem]
@@ -101,7 +104,7 @@ func GetRequestMeta[T any](r *Request) (T, bool) {
 
 	// cannot directly use TypeOf(tmp) since tmp may be a nil interface which will cause reflect.TypeOf to return nil
 	if reflect.TypeOf((*T)(nil)).Elem().Kind() == reflect.Interface {
-		for _, e := range r.Meta {
+		for _, e := range r.meta {
 			cast, ok := e.(T)
 			if ok {
 				return cast, true
@@ -113,12 +116,40 @@ func GetRequestMeta[T any](r *Request) (T, bool) {
 	// in contrast, if tmp is certainly not an interface, TypeOf(tmp) will always return the type
 	// even if tmp is nil
 	t := reflect.TypeOf(tmp)
-	for _, e := range r.Meta {
+	for _, e := range r.meta {
 		if reflect.TypeOf(e) == t {
 			return e.(T), true
 		}
 	}
 	return tmp, false
+}
+
+// ListRequestMeta finds all values with type T according to the same rules as [item.CastItem]
+func ListRequestMeta[T any](r *Request) []T {
+	var tmp T
+
+	// cannot directly use TypeOf(tmp) since tmp may be a nil interface which will cause reflect.TypeOf to return nil
+	if reflect.TypeOf((*T)(nil)).Elem().Kind() == reflect.Interface {
+		var results []T
+		for _, e := range r.meta {
+			cast, ok := e.(T)
+			if ok {
+				results = append(results, cast)
+			}
+		}
+		return results
+	}
+
+	// in contrast, if tmp is certainly not an interface, TypeOf(tmp) will always return the type
+	// even if tmp is nil
+	t := reflect.TypeOf(tmp)
+	var results []T
+	for _, e := range r.meta {
+		if reflect.TypeOf(e) == t {
+			results = append(results, e.(T))
+		}
+	}
+	return results
 }
 
 // MustParseUrl attempts to the parse the given rawUrl into a [*url.URL]

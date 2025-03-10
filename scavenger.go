@@ -27,6 +27,18 @@ type Spider interface {
 	HandleResponse(nav Navigator, res *downloader.Response) error
 }
 
+type reqJob struct {
+	Req     *downloader.Request
+	Referer *url.URL
+	// attempt is unexported, since all requests should reset their timers after resuming.
+	attempt int
+}
+
+type itemJob struct {
+	Item    item.Item
+	attempt int
+}
+
 // Scavenger is the main component that schedules requests and processes items concurrently,
 // it handles retry logic and pausing/resuming scraping.
 type Scavenger struct {
@@ -42,7 +54,6 @@ type Scavenger struct {
 }
 
 type config struct {
-	stateStore        StateStore
 	parallelDownloads int
 	parallelItems     int
 	minRetryDelay     time.Duration
@@ -53,13 +64,6 @@ type config struct {
 }
 
 type option func(cfg *config)
-
-// WithStateStore sets the interface the Scavenger uses for saving incomplete scraping state.
-func WithStateStore(store StateStore) option {
-	return func(cfg *config) {
-		cfg.stateStore = store
-	}
-}
 
 // WithRetryDelayBounds sets the bounds for retry delay.
 func WithRetryDelayBounds(minDelay, maxDelay time.Duration) option {
@@ -118,7 +122,7 @@ func WithOnItemProcessorFail(callback func(i item.Item, err error)) option {
 
 func NewScavenger(
 	dl downloader.Downloader,
-	items item.Processor,
+	iproc item.Processor,
 	logger Logger,
 	options ...option,
 ) *Scavenger {
@@ -133,9 +137,10 @@ func NewScavenger(
 		opt(&cfg)
 	}
 	return &Scavenger{
-		cfg: cfg,
-		log: logger,
-		dl:  dl,
+		cfg:   cfg,
+		iproc: iproc,
+		log:   logger,
+		dl:    dl,
 	}
 }
 
@@ -239,10 +244,16 @@ func (s *Scavenger) flushState() {
 }
 
 func (s *Scavenger) recoverAndCancelJob() {
-	err := recover()
-	if err != nil {
-		s.wg.Done()
+	r := recover()
+	if r == nil {
+		return
 	}
+	defer s.wg.Done()
+	err, ok := r.(error)
+	if ok && err.Error() == "send on closed channel" {
+		return
+	}
+	s.log.Error("scavenger", "panic", "err", err)
 }
 
 func (s *Scavenger) QueueRequest(req *downloader.Request, referer *url.URL) {

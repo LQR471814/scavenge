@@ -19,7 +19,7 @@ type ResponseMetadata struct {
 	Elapsed time.Duration
 }
 
-// Middleware runs before a request or a response, if either [HandleRequest] or [HandleResponse]
+// Middleware runs before a request or a response, if either HandleRequest or HandleResponse
 // return an error, the request will be aborted.
 //
 // if HandleRequest returns a non-nil Response, it will be used as the response for the request

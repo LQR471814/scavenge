@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"os"
@@ -26,6 +27,10 @@ type Page struct {
 	Sections []string `json:"sections"`
 }
 
+type RequestMeta struct {
+	From string
+}
+
 // WikipediaSpider contains all the logic for deriving structured data from wikipedia and making new requests.
 type WikipediaSpider struct{}
 
@@ -44,6 +49,7 @@ func (s WikipediaSpider) HandleResponse(nav scavenge.Navigator, res *downloader.
 	}
 	doc := goquery.NewDocumentFromNode(root)
 
+	meta, _ := downloader.GetRequestMeta[RequestMeta](res.Request())
 	name := doc.Find("#firstHeading").Text()
 
 	overview := ""
@@ -60,13 +66,20 @@ func (s WikipediaSpider) HandleResponse(nav scavenge.Navigator, res *downloader.
 	}
 
 	nav.SaveItem(Page{
-		Name:     name,
+		Name:     fmt.Sprintf("%s (from %s)", name, meta.From),
 		Overview: overview,
 		Sections: sections,
 	})
 
 	for _, a := range doc.Find("a.mw-redirect").EachIter() {
-		nav.FollowAnchor(a.Nodes[0])
+		req, err := nav.AnchorRequest(a.Nodes[0])
+		if err != nil {
+			return err
+		}
+		req.AddMeta(RequestMeta{
+			From: name,
+		})
+		nav.Request(req)
 	}
 
 	return nil
@@ -91,7 +104,7 @@ func main() {
 		middleware.NewDedupe(), // drop duplicate GET requests with the same url
 		middleware.NewReplay( // cache responses from wikipedia on the filesystem so we can replay them later (useful for debugging)
 			"default",
-			middleware.NewFSReplayStore("replay"),
+			middleware.NewFSReplayStore("replay", middleware.NewGobMetaEncoder(RequestMeta{})),
 			middleware.ReplayGetRequests,
 		),
 		middleware.NewThrottle( // automatically throttle responses
@@ -99,18 +112,8 @@ func main() {
 		),
 	)
 
-	// the wikipedia pages we parse will be written to a file called `out.json`
-	// with the ExportJson item pipeline.
-	_, err := os.Stat("state.bin")
-	isResuming := err == nil
-
 	var out *os.File
-	if isResuming {
-		// don't truncate results if we are resuming scraping
-		out, err = os.OpenFile("out.json", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
-	} else {
-		out, err = os.Create("out.json")
-	}
+	out, err := os.Create("out.json")
 	if err != nil {
 		logger.Error("main", "open output json file", "err", err)
 		os.Exit(1)
@@ -126,11 +129,6 @@ func main() {
 	defer cancel()
 
 	// run the scraper
-	scavenger := scavenge.NewScavenger(
-		dl, iproc, logger,
-		scavenge.WithStateStore(
-			scavenge.NewFileStateStore("state.bin"),
-		),
-	)
+	scavenger := scavenge.NewScavenger(dl, iproc, logger)
 	scavenger.Run(ctx, WikipediaSpider{})
 }
