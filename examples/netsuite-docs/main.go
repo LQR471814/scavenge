@@ -27,7 +27,7 @@ import (
 type Page struct {
 	Name     string `json:"name"`
 	Url      string `json:"url"`
-	Markdown string
+	Markdown string `json:"markdown"`
 
 	content *html.Node
 }
