@@ -51,11 +51,11 @@ func (p AllowedDomains) HandleRequest(ctx context.Context, req *downloader.Reque
 		}
 	}
 	if !matched {
-		return nil, fmt.Errorf(
+		return nil, downloader.DroppedRequest(fmt.Errorf(
 			"allowed domains: aborting request to '%s', domain '%s' is not allowed",
 			req.Url.String(),
 			hostname,
-		)
+		))
 	}
 
 	return nil, nil
@@ -81,11 +81,11 @@ func (p AllowedDomains) HandleResponse(
 		}
 	}
 	if !matched {
-		return fmt.Errorf(
+		return downloader.DroppedRequest(fmt.Errorf(
 			"allowed domains: response from domain (for a request to '%s') '%s' is not allowed",
 			res.Request().Url,
 			hostname,
-		)
+		))
 	}
 
 	return nil
