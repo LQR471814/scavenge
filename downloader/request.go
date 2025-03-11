@@ -98,7 +98,7 @@ func (r *Request) AddMeta(value any) {
 	r.meta = append(r.meta, value)
 }
 
-// GetRequestMeta finds the first value with type T according to the same rules as [item.CastItem]
+// GetRequestMeta finds the first value with type T according to the same rules as [items.CastItem]
 func GetRequestMeta[T any](r *Request) (T, bool) {
 	var tmp T
 
@@ -124,7 +124,7 @@ func GetRequestMeta[T any](r *Request) (T, bool) {
 	return tmp, false
 }
 
-// ListRequestMeta finds all values with type T according to the same rules as [item.CastItem]
+// ListRequestMeta finds all values with type T according to the same rules as [items.CastItem]
 func ListRequestMeta[T any](r *Request) []T {
 	var tmp T
 

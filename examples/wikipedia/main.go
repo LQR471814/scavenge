@@ -13,8 +13,8 @@ import (
 	"github.com/LQR471814/scavenge"
 	"github.com/LQR471814/scavenge/downloader"
 	"github.com/LQR471814/scavenge/downloader/middleware"
-	"github.com/LQR471814/scavenge/item"
-	"github.com/LQR471814/scavenge/item/pipelines"
+	"github.com/LQR471814/scavenge/items"
+	"github.com/LQR471814/scavenge/items/pipelines"
 
 	"github.com/PuerkitoBio/goquery"
 	"github.com/lmittmann/tint"
@@ -120,7 +120,7 @@ func main() {
 	}
 	defer out.Close()
 
-	iproc := item.NewProcessor(
+	iproc := items.NewProcessor(
 		pipelines.NewExportJson(out),
 	)
 

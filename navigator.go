@@ -7,7 +7,7 @@ import (
 	"net/url"
 
 	"github.com/LQR471814/scavenge/downloader"
-	"github.com/LQR471814/scavenge/item"
+	"github.com/LQR471814/scavenge/items"
 
 	"golang.org/x/net/html"
 )
@@ -27,7 +27,7 @@ func (n Navigator) Context() context.Context {
 
 // SaveItem queues the given item for processing.
 func (n Navigator) SaveItem(value any) {
-	n.scavenger.QueueItem(item.Item{value})
+	n.scavenger.QueueItem(items.Item{value})
 }
 
 // Request queues the given request.

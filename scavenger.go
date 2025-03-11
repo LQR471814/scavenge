@@ -13,7 +13,7 @@ import (
 	"time"
 
 	"github.com/LQR471814/scavenge/downloader"
-	"github.com/LQR471814/scavenge/item"
+	"github.com/LQR471814/scavenge/items"
 )
 
 // Spider contains the business logic of navigating to different links and storing structured data from
@@ -35,7 +35,7 @@ type reqJob struct {
 }
 
 type itemJob struct {
-	Item    item.Item
+	Item    items.Item
 	attempt int
 }
 
@@ -45,7 +45,7 @@ type Scavenger struct {
 	cfg   config
 	log   Logger
 	dl    downloader.Downloader
-	iproc item.Processor
+	iproc items.Processor
 
 	reqjobs     chan reqJob
 	itemjobs    chan itemJob
@@ -60,7 +60,7 @@ type config struct {
 	maxRetryDelay     time.Duration
 	reqFailHandler    func(req *downloader.Request, err error)
 	spiderFailHandler func(res *downloader.Response, err error)
-	iprocFailHandler  func(i item.Item, err error)
+	iprocFailHandler  func(i items.Item, err error)
 }
 
 type option func(cfg *config)
@@ -114,7 +114,7 @@ func WithOnSpiderHandlerFail(callback func(res *downloader.Response, err error))
 }
 
 // WithOnItemProcessorFail sets the error handler for item processing errors.
-func WithOnItemProcessorFail(callback func(i item.Item, err error)) option {
+func WithOnItemProcessorFail(callback func(i items.Item, err error)) option {
 	return func(cfg *config) {
 		cfg.iprocFailHandler = callback
 	}
@@ -122,7 +122,7 @@ func WithOnItemProcessorFail(callback func(i item.Item, err error)) option {
 
 func NewScavenger(
 	dl downloader.Downloader,
-	iproc item.Processor,
+	iproc items.Processor,
 	logger Logger,
 	options ...option,
 ) *Scavenger {
@@ -268,7 +268,7 @@ func (s *Scavenger) QueueRequest(req *downloader.Request, referer *url.URL) {
 	}()
 }
 
-func (s *Scavenger) QueueItem(i item.Item) {
+func (s *Scavenger) QueueItem(i items.Item) {
 	s.wg.Add(1)
 	go func() {
 		defer s.recoverAndCancelJob()

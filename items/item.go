@@ -1,4 +1,4 @@
-package item
+package items
 
 import "reflect"
 
@@ -28,7 +28,7 @@ func (i Item) Add(value any) Item {
 	return entries
 }
 
-// Clone returns a shallow-copy of Item.
+// Clone returns a shallow-copy of items.
 func (i Item) Clone() Item {
 	var out Item
 	copy(i, out)
@@ -64,7 +64,7 @@ func CastItem[T any](item Item) (T, bool) {
 	return tmp, false
 }
 
-// CastAllItems finds all the structs fulfilling the conditions in CastItem.
+// CastAllItems finds all the structs fulfilling the conditions in Castitems.
 func CastAllItems[T any](item Item) []T {
 	var tmp T
 
