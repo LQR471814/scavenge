@@ -78,6 +78,20 @@ type GobMetaEncoder struct{}
 func NewGobMetaEncoder(types ...any) GobMetaEncoder {
 	for _, t := range types {
 		gob.Register(t)
+
+		// test if all types can be serialized and deserialized with gob
+		buff := bytes.NewBuffer(nil)
+		enc := gob.NewEncoder(buff)
+		err := enc.Encode(&t)
+		if err != nil {
+			panic(fmt.Errorf("encode type: %w", err))
+		}
+		dec := gob.NewDecoder(buff)
+		var out any
+		err = dec.Decode(&out)
+		if err != nil {
+			panic(fmt.Errorf("decode type: %w", err))
+		}
 	}
 	return GobMetaEncoder{}
 }
