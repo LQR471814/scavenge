@@ -19,6 +19,9 @@ func NewHeaders(headers http.Header) *Headers {
 }
 
 func (h *Headers) HandleRequest(ctx context.Context, req *downloader.Request, meta downloader.RequestMetadata) (*downloader.Response, error) {
+	if req.Headers == nil {
+		req.Headers = http.Header{}
+	}
 	for k, values := range h.headers {
 		req.Headers.Del(k)
 		for _, v := range values {

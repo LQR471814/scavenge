@@ -32,6 +32,9 @@ type Request struct {
 
 // SetHeader sets an http header on the request.
 func (r *Request) SetHeader(key, value string) *Request {
+	if r.Headers == nil {
+		r.Headers = http.Header{}
+	}
 	r.Headers.Set(key, value)
 	return r
 }

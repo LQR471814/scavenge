@@ -22,6 +22,9 @@ func NewCookies(jar *cookiejar.Jar) Cookies {
 
 func (c Cookies) HandleRequest(ctx context.Context, req *downloader.Request, meta downloader.RequestMetadata) (*downloader.Response, error) {
 	cookies := c.jar.Cookies(req.Url)
+	if req.Headers == nil {
+		req.Headers = http.Header{}
+	}
 	for _, c := range cookies {
 		req.Headers.Add("cookie", c.String())
 	}

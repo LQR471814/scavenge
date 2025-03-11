@@ -53,6 +53,9 @@ func (r *Response) Headers() http.Header {
 
 // ContentType returns the mimetype in the `content-type` header.
 func (r *Response) ContentType() string {
+	if r.headers == nil {
+		return ""
+	}
 	return r.headers.Get("Content-Type")
 }
 
