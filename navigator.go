@@ -25,6 +25,11 @@ func (n Navigator) Context() context.Context {
 	return n.context
 }
 
+// CurrentUrl returns the current url of the navigator.
+func (n Navigator) CurrentUrl() *url.URL {
+	return n.currentUrl
+}
+
 // SaveItem queues the given item for processing.
 func (n Navigator) SaveItem(value any) {
 	n.scavenger.QueueItem(items.Item{value})
