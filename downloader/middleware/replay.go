@@ -2,7 +2,6 @@ package middleware
 
 import (
 	"context"
-	"fmt"
 	"net/http"
 
 	"github.com/LQR471814/scavenge"
@@ -39,18 +38,13 @@ func NewReplay(sessionId string, store ReplayStore, handler ReplayHandler) Repla
 	}
 }
 
-func (c Replay) storeId(key string) string {
-	return fmt.Sprintf("%s:%s", c.sessionId, key)
-}
-
 func (c Replay) HandleRequest(ctx context.Context, req *downloader.Request, meta downloader.RequestMetadata) (*downloader.Response, error) {
 	logger := scavenge.LoggerFromContext(ctx)
 	key, replay := c.handler(ctx, req, meta)
 	if !replay {
 		return nil, nil
 	}
-	id := c.storeId(key)
-	res := c.store.Get(ctx, c.sessionId, id)
+	res := c.store.Get(ctx, c.sessionId, key)
 	if res == nil {
 		return nil, nil
 	}
@@ -67,6 +61,6 @@ func (c Replay) HandleResponse(
 	if !replay {
 		return nil
 	}
-	c.store.Set(ctx, c.sessionId, c.storeId(key), res)
+	c.store.Set(ctx, c.sessionId, key, res)
 	return nil
 }
